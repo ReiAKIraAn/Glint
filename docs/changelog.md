@@ -6,23 +6,26 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
-### Phase 15: Milestone 5 / Workstream 8 — Provider Adapter 架构解耦与实机回归 (Provider Adapter Architecture & Regression) - 2026-09-24
-- **Provider Adapter 契约与静态注册体系 (`src/lib/providers/`)**:
-  - 创建极简 `ProviderAdapter` 接口与 `ProviderStreamContext`，仅关注网络端点、请求头鉴权、Payload 序列化与 SSE 解析，完全剥离 DOM、Card UI、Port 通信、Safari 权限与本地缓存。
-  - 实现基于编译期静态映射的 `ProviderRegistry` (`Map<Provider, ProviderAdapter>`)，严禁动态引入远端代码或 `eval()`，对未注册服务商安全抛出类型化的 `UnsupportedProviderError`。
-  - 创建专职 `AnthropicAdapter`，迁移全部 Anthropic 专有逻辑，保持 `POST https://api.anthropic.com/v1/messages`、`x-api-key`、`MAX_RESPONSE_CHARS = 4000` 截断及 60s 超时语义完全等价。
-- **网络层与调度层解耦 (`src/lib/provider-network.ts`, `src/lib/ai-port.ts`)**:
-  - 重构 `src/lib/provider-network.ts`，从 532 行 Anthropic 专属代码收敛为轻量适配器委托层，统一转接 `fetchProviderStream` 与 `fetchProviderModels`。
-  - 重构 `src/lib/ai-port.ts`，彻底消除硬编码的 `settings.provider !== 'anthropic'` 检查，转由 `hasProviderAdapter` 与 `getProviderAdapter` 动态解析；`AiPortHandlerDeps` 扩展 `getAdapter` / `hasAdapter` 依赖注入接口。
-- **内容脚本依赖隔离与打包优化 (`src/lib/ai-port-client.ts`, `src/entrypoints/content.ts`)**:
-  - 提取纯净的 `AiStreamClient` 与 Port 消息接口至独立轻量模块 `ai-port-client.ts`。
-  - 调整 `content.ts` 引用路径，彻底切断 Content Script 对 Background 密钥管理（`keys.ts`）与适配器实现（`anthropic-adapter.ts`）的静态依赖链，`content.js` 产物体积从 504.25 kB 降至 496.63 kB。
-- **Provider Adapter 专项契约测试套件 (`tests/provider-adapter.test.ts`)**:
-  - 新增 14 项全维度自动化测试（ADAPTER-01 至 ADAPTER-14），覆盖适配器契约符合性、注册表解析、未注册防护、正常 SSE 流分发、跨 chunk UTF-8 多字节拆分、网络故障归一化、协议畸形与空流防护、HTTP 状态码映射、用户中止释放 reader、60s 超时、4,000 字符硬截断、URL 零 Key 断言、错误信息脱敏与模型列表发现。
-  - 全量自动化测试用例由 297 项增长至 311 项，100% 保持 PASS。
-- **Safari 生产构建与实机环境核验**:
-  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功打包。
-  - 在 macOS 27.2 (Build 26B5091g) + Safari Technology Preview Release 253 实机环境中完成架构与安全边界回归核验。
+### Phase 15: Milestone 5 / Workstream 8 — Provider Adapter 架构解耦与架构验收 (Provider Adapter Architecture & Acceptance) - 2026-09-24
+- **Provider Adapter Architecture 架构解耦与统一抽象**:
+  - **Anthropic-specific network logic isolated in AnthropicAdapter**: 将原 `fetchProviderStream` 中高度绑定的 Anthropic 网络请求、Header 组装、Payload 组织、SSE 事件流解析与 4,000 字符限制完整收敛至 `AnthropicAdapter`。
+  - **Static ProviderRegistry introduced**: 建立编译期静态注册表体系 (`ProviderRegistry`)，提供统一 `getProviderAdapter` 与 `hasProviderAdapter` 解析，严禁动态脚本引入与 `eval()`，对未注册服务商安全阻断。
+  - **Generic AI application lifecycle no longer branches directly on Anthropic**: 消除 `ai-port.ts` 中硬编码的 `settings.provider !== 'anthropic'` 分支，通用流式调度与 Port 协议彻底脱钩具体服务商。
+  - **Model discovery routed through provider adapter**: 模型列表查询 (`fetchProviderModels`) 统一委托给 `adapter.listModels()`，保持纯净数组输出。
+  - **Credentials remain Background-only**: API Key 严格由 Background `keys.ts` (`local:apiKeys`) 管理，仅在发起流时作为上下文参数传入 Adapter；Content Script 生产产物中彻底移除 `local:apiKeys`、`x-api-key` 与 `AnthropicAdapter`。
+  - **Permission orchestration remains outside adapters**: Safari 域名权限申请与管理 (`src/lib/permissions.ts`) 严格位于 Adapter 之外，由用户手势驱动。
+  - **Cache and AI Port protocol unchanged**: AI 缓存严格维持 M5-W2 Option A 契约 (`{ word, explanation, updatedAt }`)，不保存 Provider/Model 字段；Port 协议帧 (`AI_START`, `AI_CHUNK`, `AI_DONE`, `AI_ERROR`) 保持 100% 稳定不变。
+  - **No second provider implemented**: 严格限定重构范围，当前仅实现 AnthropicAdapter，坚决不实现第二 Provider（Second provider: NOT IMPLEMENTED）。
+- **专项契约测试与全量回归 (ADAPTER-01 至 ADAPTER-14, 311/311 PASS)**:
+  - 覆盖适配器契约符合性、注册表解析、未注册防护、正常推流、UTF-8 跨 chunk 解码、网络异常归一化、协议畸形防护、HTTP 状态码映射、用户中止释放 reader、60s 超时、4,000 字符超限、URL 零密钥、错误信息脱敏与模型发现。
+  - 既有回归项 REG-01 至 REG-10 全部稳定保持 PASS。
+- **构建体积优化**:
+  - 提取 `ai-port-client.ts` 隔离 Content Script 与 Background 依赖，`content.js` 产物体积从 504.25 kB 降至 496.63 kB。
+- **里程碑状态与已知限制 (Known Limitations)**:
+  - **M5-W8 最终状态**: `PASS WITH KNOWN LIMITATION`。
+  - **已知限制**:
+    1. **WebKit Service Worker 慢流生命周期**: 极端慢流/长空闲下的 Service Worker 生命周期行为保持为 `UNVERIFIED`（已通过应用层 60s 超时兜底，坚决不引入伪造心跳等 keep-alive hack）。
+    2. **Safari TP 版本状态**: 实测运行于 Safari Technology Preview Release 253 (WebKit 22626.1.8.19.2)；该版本是否为 Apple 最新版本保持为 `UNVERIFIED`。
 
 ### Phase 14: Milestone 5 / Workstream 2 — AI 释义本地持久化与缓存 (AI Explanation Persistence) - 2026-09-24
 - **持久化契约与隐私保护 (`src/lib/types.ts`, `src/lib/explanation-cache.ts`)**:

@@ -1,8 +1,8 @@
 # ADR 002: AI Provider Adapter 架构设计 (Milestone 5 / Workstream 8)
 
 ## 状态
-**提议 (Proposed) / 架构审计就绪 (Architecture Ready - Step 1)**  
-本 ADR 为 Milestone 5 Workstream 8 的架构设计依据。在用户确认前，**生产代码 (`src/`) 保持 0 修改**。
+**已采纳并验收通过 (Accepted & Verified - M5-W8 Step 4: PASS WITH KNOWN LIMITATION)**
+本 ADR 为 Milestone 5 Workstream 8 的核心架构规范与决策沉淀。在完成架构重构（Commit `4fece3e`）、Safari 实机回归（Commit `a2817a2`）与最终架构验收后，正式确立为生产架构基准。
 
 ---
 
@@ -127,13 +127,52 @@ Milestone 5 / Workstream 8 (M5-W8) 的核心目标：
 ## 6. Decision (核心架构决策)
 
 ### 6.1 核心决策点
-1. **采用方案 C (Callback-based ProviderAdapter)**: 适配器负责将抽象生词请求转换为具体厂商的 HTTP/SSE 调用，并在获得纯文本增量时调用 `onChunk`。
+1. **采用静态 Provider Adapter + Registry 架构 (Callback-based ProviderAdapter)**: 适配器负责将抽象生词请求转换为具体厂商的 HTTP/SSE 调用，并在获得纯文本增量时调用 `onChunk`。
 2. **静态 ProviderRegistry**: 采用编译期静态映射表（`Map<Provider, ProviderAdapter>`），按 Provider ID 快速检索。
-3. **单向依赖原则**:
-   - `ai-port.ts` 仅依赖 `ProviderAdapter` 接口与 `ProviderRegistry`。
-   - `ProviderAdapter` 不得反向依赖 `ai-port.ts`、`Card`、`DOM` 或 `Storage`。
-4. **保留现有通用保护机制**:
-   - `MAX_RESPONSE_CHARS = 4_000` 与 `STREAM_TIMEOUT = 60_000` 作为标准网络安全底线，由具体 Adapter 或抽象基类严格维系。
+   ```text
+   Provider
+     ↓
+   ProviderRegistry
+     ↓
+   ProviderAdapter (当前仅实现 AnthropicAdapter)
+   ```
+3. **单向依赖原则与严格分工**:
+   - **Application Layer 负责**:
+     - WebExtension Port 通信生命周期与连接管理 (`src/lib/ai-port.ts`)
+     - 用户凭证安全读取与注入 (`local:apiKeys`, `src/lib/keys.ts`)
+     - Safari Origin 权限前置检查与申请编排 (`src/lib/permissions.ts`，严格位于 Adapter 之外)
+     - 本地释义缓存检索与写入 (`local:explanations`, `src/lib/explanation-cache.ts`)
+     - IPC 协议消息帧封装 (`AI_START`, `AI_CHUNK`, `AI_DONE`, `AI_ERROR`)
+     - 悬浮卡片 UI 渲染、Shadow DOM 与生命周期 (`src/lib/card.ts`, `src/lib/hover.ts`)
+   - **Provider Adapter 负责**:
+     - 目标服务商 HTTP 请求构建与专属 Request Header 组装 (`x-api-key` 等)
+     - 响应 ReadableStream 读取、SSE 增量事件行解析与 UTF-8 多字节解码
+     - 服务商专有错误/状态码向标准 `ProviderError` 层次的归一化转换
+     - 服务商可用模型列表发现与解析 (`listModels`)
+   - **Provider Adapter 严格不负责**:
+     - ❌ `browser.permissions.request()` 权限申请编排
+     - ❌ `browser.storage` 存储与缓存读写
+     - ❌ 任何页面 DOM / Shadow DOM / CSS 访问
+     - ❌ WebExtension Port 生命周期与跨进程 IPC 协议
+     - ❌ 悬浮卡片 UI 状态机与音频朗读
+     - ❌ API Key 的持久化与多服务商密钥管理
+4. **当前 Provider 范围**:
+   - **当前仅实现 Anthropic** (`AnthropicAdapter`)。
+   - **严禁虚构或声称已支持多个 Provider**。其他服务商（OpenAI, Gemini 等）当前保持未实现状态（NOT IMPLEMENTED）。
+5. **扩展路径 (Extension Path)**:
+   - 未来增加第二 Provider 时，原则上应仅需要：
+     - 新建对应 `ProviderAdapter` 实现；
+     - 在 `ProviderRegistry` 进行静态注册；
+     - 在设置页进行对应服务商的 UI 配置项、密钥存储与 Origin 权限映射。
+   - 增加新 Provider 时，**严禁重新设计或侵入修改**:
+     - Hover Card UI 及其状态机；
+     - AI Port 通信协议；
+     - 本地缓存架构与 Schema；
+     - Content Script 运行时；
+     - 通用生命周期调度器。
+   - *(注：此架构扩展路径为设计原则，不构成任何“仅需 N 行代码”的定量代码行数承诺)*。
+6. **保留现有通用安全机制**:
+   - `MAX_RESPONSE_CHARS = 4_000` 与 `STREAM_TIMEOUT = 60_000` 作为标准网络安全底线，由 Adapter 严格维系。
 
 ---
 
@@ -199,6 +238,7 @@ export interface ProviderAdapter {
 - ❌ **Safari 权限申请**: 严禁调用 `browser.permissions.request()`（非用户直接手势环境）。
 - ❌ **Storage / Cache**: 严禁读写 `local:settings` 或 `local:explanations`。
 - ❌ **分词与上下文截取**: 仅消费已经精准切好的 `sentence`。
+- ❌ **API 凭证持久化**: 仅通过上下文参数被动接收 `ctx.apiKey`，不触碰 `local:apiKeys`。
 
 ---
 
@@ -268,8 +308,8 @@ export interface ProviderAdapter {
 
 在引入 Multi-Provider 架构时，针对 `local:explanations` 缓存有两种策略：
 
-### Option A: 全局词汇共享缓存 (Global Word Cache)
-- **定义**: 缓存条目契约保持 M5-W2 的冻结结构：
+### Option A: 全局词汇共享缓存 (Global Word Cache) — **已采纳 (APPROVED)**
+- **定义**: 缓存条目契约严格维持 M5-W2 的冻结结构：
   ```typescript
   export interface ExplanationCacheEntry {
     word: string;
@@ -277,47 +317,36 @@ export interface ProviderAdapter {
     updatedAt: number;
   }
   ```
-- **机制**: 缓存 Key 仅为小写归一化后的 `normalizeWordKey(word)`。无论当前选择 Anthropic、OpenAI 还是 Gemini，命中即直接展示已缓存的释义。
-- **优缺点分析**:
-  - *隐私与存储*: 存储开销最小（实测 2,000 条约 506 KB），完全不引入冗余条目。
-  - *契约兼容*: 100% 兼容 M5-W2 已上线并通过 Safari TP 实机验证的缓存系统，无需进行任何存储迁移与数据升级。
-  - *用户体验*: 符合词汇学习的核心认知——“解释的是单词在特定语境中的词义”，用户不关心具体是由 Claude 还是 GPT 输出的；省 Token、零延迟。
-  - *局限性*: 当用户切换 Provider 时，已缓存的词不会自动用新 Provider 重新生成（除非执行清空缓存或缓存自然 LRU 淘汰）。
+- **机制**: 缓存 Key 仅为小写归一化后的 `normalizeWordKey(word)`。无论当前选择 Anthropic 还是未来可能扩展的 Provider，命中即直接展示已缓存的释义。
+- **产品策略确定**:
+  - **用户裁决**: 用户于 M5-W8 Step 2 决策正式批准 **Option A**。
+  - **Schema 严格冻结**: Provider 与 Model 字段坚决不进入 Cache Schema。
+  - **行为一致性**: 切换 Provider/Model 后，已有生词命中缓存继续直接展示现有释义，不发送 AI 网络请求；若用户需要重新获取，需在设置中显式清空缓存或等待 LRU 淘汰。
+  - **隐私边界**: 缓存绝不保存 `sentence`、`context`、`API key`、`raw request` 或 `raw response metadata`。
 
-### Option B: Provider/Model 绑定的隔离缓存 (Scoped Cache)
-- **定义**: 扩展缓存结构为包含厂商与模型元数据：
-  ```typescript
-  export interface ExplanationCacheEntry {
-    word: string;
-    provider: Provider;
-    model: string;
-    explanation: string;
-    updatedAt: number;
-  }
-  ```
-- **优缺点分析**:
-  - *独立性*: 不同 Provider 的生成结果独立保存，切换 Provider 后展示各自的解释。
-  - *破坏性*: 严重破坏 M5-W2 刚刚冻结的“仅存储 word, explanation, updatedAt”的产品决策；缓存容量扩大 N 倍，逼近 Safari 存储配额；需要复杂的历史数据迁移逻辑；LRU 淘汰复杂度翻倍。
-
-### 架构推荐与决策分流
-- **架构组推荐**: **采用 Option A (全局共享缓存)**。
-- **状态声明**: 鉴于产品与数据策略的严肃性，本项作为 **USER DECISION REQUIRED** 明确呈报给用户，在用户明确批准前，**M5-W8 严格不修改现有 M5-W2 缓存 Schema**。
+### Option B: Provider/Model 绑定的隔离缓存 (Scoped Cache) — **已否决 (REJECTED)**
+- 扩展缓存结构包含 Provider/Model 字段会打破 M5-W2 的最小化隐私契约，大幅增加存储占用并引入复杂的版本迁移逻辑，已被正式否决。
 
 ---
 
-## 12. Testing Strategy (测试与验证架构)
+## 12. Testing Strategy & Verification Matrix (测试与验证架构)
 
-实施 Adapter Architecture 后，测试矩阵规划如下：
+实施 Adapter Architecture 后，建立了多层验证矩阵：
 
-1. **Unit Tests (单元测试)**:
-   - `tests/anthropic-adapter.test.ts`: 验证 AnthropicAdapter 完整实现 `ProviderAdapter` 契约。
-   - 验证各种网络异常（401, 403, 429, 500, 网络断开, 超时, 畸形 JSON, >4000 字符超限）被精准转换为标准 `ProviderError`。
+1. **Unit / Automated Tests (自动化契约测试套件)**:
+   - `tests/provider-adapter.test.ts`: 新增 14 项全维度自动化测试 (ADAPTER-01 至 ADAPTER-14)。
+   - 验证 AnthropicAdapter 完整实现 `ProviderAdapter` 契约。
+   - 验证各种网络异常（401, 403, 429, 500, 网络断开, 60s 超时, 畸形 JSON, >4,000 字符超限）被精准转换为标准 `ProviderError`。
    - 验证 `AbortSignal` 触发时底层连接立即中断且后续无 `onChunk` 触发。
-2. **Contract / Fake Provider Tests (契约测试)**:
-   - 编写 `FakeProviderAdapter`，注入 `handleAiPortConnection`。
-   - 验证 `handleAiPortConnection` 在不同 Provider 下的消息分发、Same-Port Replacement、取消与错误下发完全一致。
-3. **Regression Tests (回归测试)**:
-   - 保证既有的 **297 项自动化测试全部保持 PASS**，无任何破坏性修改。
+   - 验证 UTF-8 多字节拆分解码。
+   - 全量 311 项自动化测试 100% PASS。
+2. **Regression Verification (回归核查)**:
+   - 保证既有的 REG-01 至 REG-10 全链路行为（Hover 零请求、点击流式、纯文本 Shadow DOM 渲染、主动取消、生词切换、缓存命中零网络、完整写入、清空不越权、错误脱敏、密钥隔离）100% 保持正常。
+3. **Evidence Classification (证据分类标准)**:
+   - **VERIFIED (已确证)**: 具有直接测试证据（单元测试或已验证的确定性机制）。
+   - **AUTOMATED (自动化测试)**: 在 Node / Happy-DOM 环境下通过代码断言验证。
+   - **OBSERVED (观察到)**: 在目标测试场景下未见明显异常，但不作普遍性绝对推导。
+   - **UNVERIFIED (未验证)**: 缺乏直接证据，保留为已知边界或限制。
 
 ---
 
@@ -329,6 +358,8 @@ export interface ProviderAdapter {
    - Adapter 内置 `STREAM_TIMEOUT = 60_000` 超时控制器，防止 WebKit NetworkProcess 挂起时导致的无限期挂起。
 3. **Content Security Policy (CSP)**:
    - 采用纯静态代码打包与静态 Registry，完全符合 Safari WebExtension 的 CSP 规范（无动态导入、无 `unsafe-eval`）。
+4. **Content Script 打包隔离**:
+   - 将 `AiStreamClient` 抽离为 `ai-port-client.ts` 后，构建产物 `content.js` 体积由 504.25 kB 降至 496.63 kB，静态审计确证产物中零 `local:apiKeys`、零 `x-api-key`、零 `AnthropicAdapter`。
 
 ---
 
@@ -339,22 +370,57 @@ export interface ProviderAdapter {
 | **AsyncIterable 生成器流** | 增加 WebKit SW 微任务切换开销，Push-to-Pull 缓冲复杂度高，对无背压的 Port IPC 无实际价值。 |
 | **动态插件加载 (Dynamic Loading)** | 违反 Safari 扩展安全审查政策，存在严重的代码注入安全隐患。 |
 | **全能 Capability 抽象系统** | 当前产品定位极其清晰（仅限生词文本语境释义），引入工具调用、视觉、音频等多模态抽象属于过度工程。 |
-| **修改 Cache Schema 增加 Provider 维度** | 违背 M5-W2 刚刚确认的产品决策，增加存储碎片与配额溢出风险。 |
+| **修改 Cache Schema 增加 Provider 维度 (Option B)** | 违背 M5-W2 刚刚确认的产品决策，增加存储碎片与配额溢出风险。 |
+| **在 Adapter 内实现 Permission 申请** | 违背 Safari 权限模型要求（`permissions.request` 必须在用户直接手势上下文）。 |
 
 ---
 
-## 15. Open Questions (待确认事项)
+## 15. Closed Decisions (已关闭事项与决策决议)
 
 1. **缓存策略确认**:
-   - 是否维持 Option A（所有 Provider 共享已生成的生词释义缓存），还是未来有明确需求切换为 Option B？（建议维持 Option A）。
-2. **Step 2 实施范围确认**:
-   - Step 2 是否仅将现有的 Anthropic 重构成 `AnthropicAdapter` 并接入 `ProviderRegistry`，而暂不引入任何外部新 Provider？（建议严格遵循本原则）。
+   - **决议**: **维持 Option A (APPROVED)**。所有 Provider 共享已生成的生词释义缓存，Schema 严格维持 `{ word, explanation, updatedAt }` 不变。
+2. **实施范围确认**:
+   - **决议**: **仅实施 Provider Adapter 架构解耦 (APPROVED)**。重构 Anthropic 为 `AnthropicAdapter` 并接入 `ProviderRegistry`。坚决不实现第二 Provider（Second provider: NOT IMPLEMENTED）。
 
 ---
 
-## 16. 结论与下一步
+## 16. Verification Status & Architecture Acceptance (验收结论)
 
-本架构设计在实现服务商解耦的同时，保持了最小的抽象开销、极高的安全性以及对 Safari WebKit 的良好亲和度。
+### 16.1 验证结论分级沉淀
 
-- **当前状态**: `ARCHITECTURE READY`
-- **下一步行动**: 等待用户确认 ADR 及相关决策后，进入 **M5-W8 Step 2: Provider Adapter Implementation**。
+#### VERIFIED (已确证)
+- Provider Adapter 架构解耦边界完整；
+- Anthropic SSE 正常流式接收与解析；
+- UTF-8 多字节跨 chunk 截断解码无乱码；
+- 用户主动 Abort 路径立即释放底层 reader；
+- 错误类型归一化为统一 `ProviderError` 体系；
+- API Key 严格仅通过 Request Header 传输；
+- URL Query 中绝对无 API Key；
+- Safari Origin 权限编排严格保持在 Adapter 外部；
+- 缓存命中阻断 AI_START 与网络外发；
+- Content Script 生产产物中凭据与适配器代码彻底隔离；
+- REG-01 至 REG-10 既有回归行为保持稳定。
+
+#### OBSERVED (已观察)
+- 测试场景下无明显性能回退；
+- 正常 Safari 流式响应与 UI 打字机渲染平滑；
+- 卡片展开与生命周期切换正常。
+*(注：不作“零 Long Tasks”、“100% GC 回收”、“绝对无内存泄漏”等未经直接测量的过度断言)*。
+
+#### UNVERIFIED (已知限制与未验证项)
+- **极端慢流 / 长空闲 Service Worker 生命周期**: 在网络极端停顿或超长空闲时，WebKit Service Worker 是否会被浏览器进程提前挂起仍缺乏官方确定性保证；系统采用应用层 60s 超时兜底，坚决不引入伪造心跳等 keep-alive hack。
+- **Safari TP 版本状态**: 本机实测运行于 Safari Technology Preview Release 253 (WebKit 22626.1.8.19.2)；该版本是否为 Apple 当前发布的最新 STP 版本未经验证。
+
+---
+
+### 16.2 最终里程碑状态
+
+```text
+M5-W8 Step 1 — ARCHITECTURE READY
+M5-W8 Step 2 — PASS WITH VERIFICATION LIMITATION
+M5-W8 Step 3 — PASS WITH KNOWN LIMITATION
+M5-W8 Overall — PASS WITH KNOWN LIMITATION
+```
+
+- **Second Provider**: `NOT IMPLEMENTED` (符合 M5-W8 范围约束，非遗漏缺陷)。
+- **Final Decision**: `M5-W8 — PASS WITH KNOWN LIMITATION`。

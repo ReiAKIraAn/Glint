@@ -133,15 +133,19 @@
 
 ### 4.4 多服务商生态支持 (11+ Providers Support)
 1. **Original 行为**: 支持 Anthropic、OpenAI、Gemini、DeepSeek、Groq、Ollama 等 11+ 家服务商，用户可自由选择并填入对应 Key。
-2. **Safari 当前实现**: Background 中拉取模型列表 (`fetchProviderModels`) 已经支持 Anthropic、Gemini、OpenAI 与 Compatible 接口；但流式释义链路 (`fetchProviderStream`) 仅针对 Anthropic 实现了 SSE 解析。
-3. **为什么没有**: Milestone 4 决策冻结范围为单一 Provider (Anthropic) 的垂直切片。
+2. **Safari 当前实现**:
+   - 在 M5-W8 中完成了 **Provider Adapter Architecture** 重构 (`src/lib/providers/`)，实现静态 `ProviderRegistry` 并将 Anthropic 专有网络/SSE 逻辑收敛至 `AnthropicAdapter`。
+   - 通用流式调度器 (`ai-port.ts`) 彻底消除硬编码 Provider 分支。
+   - Background 模型拉取 (`fetchProviderModels`) 统一转接 `adapter.listModels()`。
+   - **当前仅实现 Anthropic**；第二服务商（OpenAI, Gemini 等）架构就绪但未实例化实现（Second provider: NOT IMPLEMENTED）。
+3. **为什么没有实现第二服务商**: M5-W8 范围严格限定为“Provider Adapter 架构解耦”，遵循渐进交付原则，先验证架构纯净度，未引入第二实现。
 4. **WebKit 是否提供对应 API**: 提供，标准 `fetch` 与 `ReadableStream` 均支持与其他服务商通信。
 5. **Safari WebExtension 是否支持**: 支持，只要用户在设置中授权相应域名。
 6. **是否可纯前端实现**: 是。
 7. **是否需要 Background**: 是（按安全规范，API Key 仅驻留 Background）。
 8. **是否需要 Native API**: 不需要。
-9. **不实现的用户行为差异**: 拥有 OpenAI、DeepSeek、Gemini 或本地 Ollama 的用户无法使用 AI 释义。
-10. **定性判定**: **PARTIAL (待扩展 Provider 适配器)**。
+9. **不实现的用户行为差异**: 当前仍仅可使用 Anthropic，其他模型暂未启用。
+10. **定性判定**: **ADAPTER ARCHITECTURE COMPLETE / PASS WITH KNOWN LIMITATION (Second provider: NOT IMPLEMENTED)**。
 
 ---
 
@@ -395,9 +399,18 @@
 
 ---
 
-## 16. 审计结论与最终判定 (Verdict)
+## 16. 审计结论与里程碑进展 (Milestone Progress & Verdict)
 
-* **阶段状态**: **M5 PREFLIGHT COMPLETE**  
-* **生产代码状态**: **0 MODIFICATIONS (`src/` 保持完全未修改)**  
-* **文档交付物**: `docs/m5-feature-gap-audit.md` 新增完成，`docs/test-plan.md` 与 `docs/changelog.md` 同步登记本次审计。  
-* **后续动作**: **STOP — 等待用户进行 M5 架构审查与决策**。
+* **M5-W1 (TTS 原生离线朗读)**: **PASS** (Commit `9068d13`)
+* **M5-W2 (AI 释义本地持久化)**: **PASS WITH MINOR REPORTING CORRECTIONS** (Commit `42cccf7`, Closure `7ddae36`)
+* **M5-W8 (Provider Adapter Architecture)**: **PASS WITH KNOWN LIMITATION**
+  ```text
+  M5-W8 Step 1 — ARCHITECTURE READY
+  M5-W8 Step 2 — PASS WITH VERIFICATION LIMITATION
+  M5-W8 Step 3 — PASS WITH KNOWN LIMITATION
+  M5-W8 Overall — PASS WITH KNOWN LIMITATION
+  ```
+  - **Second Provider**: `NOT IMPLEMENTED` (故意保持单一 Provider，架构已就绪，未引入第二实现)。
+  - **Known Limitation**: WebKit Service Worker lifecycle during extreme slow/idle streaming remains unverified (应用层 60s 硬超时兜底).
+* **生产代码状态**: **0 UNINTENDED MODIFICATIONS**
+* **后续动作**: **STOP — 等待用户下一步指示**。
