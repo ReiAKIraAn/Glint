@@ -53,7 +53,14 @@ const SENTENCE_BOUNDARY = /[.!?:;"“”'‘’()\[\]—–]/;
  * 但它们是领域黑话，不是英语词汇——而黑话几乎一定会同时出现在代码块、命令行或
  * 标识符里。这就是把它们和 latticework、conflagration 那种真生僻词区分开的信号。
  */
-function collectCodeWords(root: Node): Set<string> {
+/**
+ * 收集本页代码块里出现过的词。
+ *
+ * 技术文档里 plugins、hashtag、parser 这类词落在词库外，会被判成「生僻」标出来，
+ * 但它们是领域黑话，不是英语词汇——而黑话几乎一定会同时出现在代码块、命令行或
+ * 标识符里。这就是把它们和 latticework、conflagration 那种真生僻词区分开的信号。
+ */
+export function collectCodeWords(root: Node): Set<string> {
   const words = new Set<string>();
   const scope = root.nodeType === Node.ELEMENT_NODE ? (root as Element) : document;
   for (const el of scope.querySelectorAll('code, pre, kbd, samp, var')) {
@@ -62,6 +69,124 @@ function collectCodeWords(root: Node): Set<string> {
     for (const match of text.toLowerCase().matchAll(WORD_RE)) words.add(match[0]);
   }
   return words;
+}
+
+/**
+ * 扫描单个 Text 节点里的所有生词。
+ * 纯字符串与正则匹配，不遍历子树，是增量扫描的最小高性能单元。
+ */
+export function scanTextNode(
+  text: Text,
+  settings: Settings,
+  known: Set<string>,
+  canExplain: boolean,
+  codeWords: Set<string>,
+  examWords?: Set<string>,
+  seen?: Set<string>,
+): Token[] {
+  const data = text.data;
+  if (!data || data.length < 2) return [];
+
+  const tokens: Token[] = [];
+  WORD_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = WORD_RE.exec(data))) {
+    const surface = match[0];
+    if (surface.length < 3) continue;
+
+    // 全大写多半是缩写（NASA、CEO），不是要学的词
+    if (surface.length > 1 && surface === surface.toUpperCase()) continue;
+
+    // 前后紧贴着这些字符的不是在读的英文，是 @handle、#tag、URL 片段、
+    // file.ext、snake_case 标识符。社交媒体和代码密集的页面上这类东西极多。
+    if (inIdentifier(data, match.index, surface.length)) continue;
+
+    const { lemma, level } = resolve(surface);
+    if (level <= settings.level) continue;
+
+    // 备考模式：先过考纲这道闸，再走后面所有常规判断（交集，不是替代）
+    if (examWords && !examWords.has(lemma)) continue;
+
+    if (level === UNKNOWN_LEVEL) {
+      if (!settings.markUnknown) continue;
+      // 词库里查不到，AI 又没就绪——标出来只会给一张空卡片，不如不标
+      if (!canExplain) continue;
+      // 在本页代码块里出现过 = 领域黑话，不是英语生词
+      if (codeWords.has(lemma)) continue;
+      if (isUpper(surface[0]!)) continue;
+      // 词库外的短词基本是缩写（ops）、handle、拼写错误，不是值得学的生词
+      if (surface.length < 5) continue;
+    }
+
+    // 句中的大写词多半是专有名词（人名、地名、产品名）。句首的大写词正常处理。
+    if (isUpper(surface[0]!) && !atSentenceStart(data, match.index)) continue;
+
+    // 「我过了六级」= 中考到六级的考纲词全部静音，一次顶几千次「我认识」
+    if (settings.passedExam > 0) {
+      const floor = examFloor(lemma);
+      if (floor > 0 && floor <= settings.passedExam) continue;
+    }
+
+    if (known.has(lemma)) continue;
+    if (settings.oncePerPage && seen?.has(lemma)) continue;
+    seen?.add(lemma);
+
+    tokens.push({
+      node: text,
+      start: match.index,
+      end: match.index + surface.length,
+      surface,
+      lemma,
+      level,
+    });
+  }
+
+  return tokens;
+}
+
+/**
+ * 增量扫描指定 DOM 子树，避开 OPAQUE_TAGS 和非英文节点。
+ */
+export function scanSubtree(
+  root: Node,
+  settings: Settings,
+  known: Set<string>,
+  canExplain: boolean,
+  codeWords: Set<string>,
+  examWords?: Set<string>,
+  seen: Set<string> = new Set(),
+): Token[] {
+  if (root.nodeType === Node.ELEMENT_NODE) {
+    const el = root as Element;
+    if (OPAQUE_TAGS.has(el.tagName) || el.tagName.toLowerCase() === OWN_ELEMENT) return [];
+    if ((el as HTMLElement).isContentEditable) return [];
+    const lang = el.getAttribute('lang');
+    if (lang && !lang.toLowerCase().startsWith('en')) return [];
+  } else if (root.nodeType === Node.TEXT_NODE) {
+    return scanTextNode(root as Text, settings, known, canExplain, codeWords, examWords, seen);
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType !== Node.ELEMENT_NODE) return NodeFilter.FILTER_ACCEPT;
+      const el = node as Element;
+      if (OPAQUE_TAGS.has(el.tagName) || el.tagName.toLowerCase() === OWN_ELEMENT) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      if ((el as HTMLElement).isContentEditable) return NodeFilter.FILTER_REJECT;
+      const lang = el.getAttribute('lang');
+      if (lang && !lang.toLowerCase().startsWith('en')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_SKIP;
+    },
+  });
+
+  const tokens: Token[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    tokens.push(...scanTextNode(node as Text, settings, known, canExplain, codeWords, examWords, seen));
+  }
+
+  return tokens;
 }
 
 /**
@@ -77,94 +202,7 @@ export function scan(
   examWords?: Set<string>,
 ): Token[] {
   const codeWords = collectCodeWords(root);
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (node.nodeType !== Node.ELEMENT_NODE) return NodeFilter.FILTER_ACCEPT;
-      const el = node as Element;
-      // REJECT 会连整个子树一起跳过；SKIP 只跳过元素本身，继续走子节点
-      if (OPAQUE_TAGS.has(el.tagName) || el.tagName.toLowerCase() === OWN_ELEMENT) {
-        return NodeFilter.FILTER_REJECT;
-      }
-      if ((el as HTMLElement).isContentEditable) return NodeFilter.FILTER_REJECT;
-      // 页面自己标了非英文的区块，别碰
-      const lang = el.getAttribute('lang');
-      if (lang && !lang.toLowerCase().startsWith('en')) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_SKIP;
-    },
-  });
-
-  const tokens: Token[] = [];
-  const seen = new Set<string>();
-
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const text = node as Text;
-    const data = text.data;
-    if (data.length < 2) continue;
-
-    WORD_RE.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = WORD_RE.exec(data))) {
-      const surface = match[0];
-      if (surface.length < 3) continue;
-
-      // 全大写多半是缩写（NASA、CEO），不是要学的词
-      if (surface.length > 1 && surface === surface.toUpperCase()) continue;
-
-      // 前后紧贴着这些字符的不是在读的英文，是 @handle、#tag、URL 片段、
-      // file.ext、snake_case 标识符。社交媒体和代码密集的页面上这类东西极多。
-      if (inIdentifier(data, match.index, surface.length)) continue;
-
-      const { lemma, level } = resolve(surface);
-      if (level <= settings.level) continue;
-
-      // 备考模式：先过考纲这道闸，再走后面所有常规判断（交集，不是替代）
-      if (examWords && !examWords.has(lemma)) continue;
-
-      if (level === UNKNOWN_LEVEL) {
-        if (!settings.markUnknown) continue;
-        // 词库里查不到，AI 又没就绪——标出来只会给一张空卡片，不如不标
-        if (!canExplain) continue;
-        // 在本页代码块里出现过 = 领域黑话，不是英语生词
-        if (codeWords.has(lemma)) continue;
-        /**
-         * 词库里没有 + 首字母大写 = 人名、品牌名、用户名。
-         *
-         * 这一条比「句中大写才算专有名词」那条可靠得多。现代网页上几乎每段 UI 文本
-         * 都是独立的文本节点，用户名、按钮、导航项在节点里都排在第一个字符，
-         * 位置判断会一律当成句首放行——Meshyai 这种昵称就是这么漏过去的。
-         * 而真正难的大写词（句首的 Ubiquitous）在词库里查得到，不会被这条拦下。
-         */
-        if (isUpper(surface[0]!)) continue;
-        // 词库外的短词基本是缩写（ops）、handle、拼写错误，不是值得学的生词
-        if (surface.length < 5) continue;
-      }
-
-      // 句中的大写词多半是专有名词（人名、地名、产品名）。句首的大写词正常处理。
-      if (isUpper(surface[0]!) && !atSentenceStart(data, match.index)) continue;
-
-      // 「我过了六级」= 中考到六级的考纲词全部静音，一次顶几千次「我认识」
-      if (settings.passedExam > 0) {
-        const floor = examFloor(lemma);
-        if (floor > 0 && floor <= settings.passedExam) continue;
-      }
-
-      if (known.has(lemma)) continue;
-      if (settings.oncePerPage && seen.has(lemma)) continue;
-      seen.add(lemma);
-
-      tokens.push({
-        node: text,
-        start: match.index,
-        end: match.index + surface.length,
-        surface,
-        lemma,
-        level,
-      });
-    }
-  }
-
-  return tokens;
+  return scanSubtree(root, settings, known, canExplain, codeWords, examWords);
 }
 
 /** 这个词是不是嵌在标识符里——看它紧邻的前后两个字符。 */

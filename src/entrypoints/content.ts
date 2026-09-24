@@ -6,7 +6,7 @@ import {
   settingsStore,
   withDefaults,
 } from '@/lib/settings';
-import { scan, sentenceAround, type Token } from '@/lib/scan';
+import { collectCodeWords, scanSubtree, scanTextNode, sentenceAround, type Token } from '@/lib/scan';
 import { applyStyle, clear, isSupported, paint, removeStyle } from '@/lib/highlight';
 import { HoverTracker } from '@/lib/hover';
 import { Card } from '@/lib/card';
@@ -165,6 +165,14 @@ export default defineContentScript({
       onLeave: () => card.hide(),
     });
 
+    let codeWords = new Set<string>();
+    const seen = new Set<string>();
+
+    function refreshSeen() {
+      seen.clear();
+      for (const t of tokens) seen.add(t.lemma);
+    }
+
     function run() {
       if (
         !settings.enabled ||
@@ -172,12 +180,15 @@ export default defineContentScript({
         !looksEnglish()
       ) {
         tokens = [];
+        seen.clear();
         clear();
         hover.setTokens([]);
         card.hide();
         return;
       }
-      tokens = scan(document.body, settings, known, canExplain, examWords).slice(0, MAX_TOKENS);
+      codeWords = collectCodeWords(document.body);
+      seen.clear();
+      tokens = scanSubtree(document.body, settings, known, canExplain, codeWords, examWords, seen).slice(0, MAX_TOKENS);
       paint(tokens);
       hover.setTokens(tokens);
     }
@@ -192,16 +203,116 @@ export default defineContentScript({
     await Promise.all([refreshAiStatus(), refreshExamWords()]);
     schedule(run);
 
-    // SPA 会不停换内容。全量重扫一遍几十毫秒，比维护增量状态可靠得多，
-    // 但必须防抖——否则每插入一个节点就重扫一次，页面直接卡死。
-    let pending: ReturnType<typeof setTimeout>;
+    /**
+     * Safari-First 高性能增量扫描引擎：
+     * 废弃原版每次变动都 100% 重扫整页 document.body 的方案。
+     * 只处理真正发生变化的局部子树与 Text 节点，内存与主线程消耗下降两个数量级。
+     */
+    let pendingBatch: MutationRecord[] = [];
+    let batchTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function isCodeNode(node: Node): boolean {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element;
+        const tag = el.tagName;
+        if (tag === 'CODE' || tag === 'PRE' || tag === 'KBD' || tag === 'SAMP' || tag === 'VAR') return true;
+        if (el.querySelector?.('code, pre, kbd, samp, var')) return true;
+      }
+      return false;
+    }
+
+    function processBatch() {
+      batchTimer = undefined;
+      if (!pendingBatch.length) return;
+      const records = pendingBatch;
+      pendingBatch = [];
+
+      if (
+        !settings.enabled ||
+        siteDisabled(location.hostname, settings.disabledSites) ||
+        !looksEnglish()
+      ) {
+        return;
+      }
+
+      // 极端大幅度重构（如 SPA 路由整页切换，一次性扔进来上百条记录），退回全量重扫
+      if (records.length > 250 || tokens.length === 0) {
+        run();
+        return;
+      }
+
+      let codeChanged = false;
+      const dirtyTextNodes = new Set<Text>();
+      const addedNodes = new Set<Node>();
+
+      const host = card.element;
+      for (const r of records) {
+        if (r.target === host || host.contains(r.target)) continue;
+
+        if (isCodeNode(r.target)) codeChanged = true;
+
+        if (r.type === 'characterData' && r.target.nodeType === Node.TEXT_NODE) {
+          dirtyTextNodes.add(r.target as Text);
+        } else if (r.type === 'childList') {
+          for (let i = 0; i < r.addedNodes.length; i++) {
+            const node = r.addedNodes[i]!;
+            if (node === host || host.contains(node)) continue;
+            if (isCodeNode(node)) codeChanged = true;
+            addedNodes.add(node);
+          }
+        }
+      }
+
+      if (codeChanged) {
+        codeWords = collectCodeWords(document.body);
+      }
+
+      // 1. 剪除已脱离 DOM 树的旧 Token，以及文本已发生变动的 Text 节点中的旧 Token
+      const prevLength = tokens.length;
+      tokens = tokens.filter((t) => t.node.isConnected && !dirtyTextNodes.has(t.node));
+
+      if (settings.oncePerPage) refreshSeen();
+
+      let hasNewTokens = false;
+
+      // 2. 增量扫描发生文本变动的 Text 节点
+      for (const textNode of dirtyTextNodes) {
+        if (!textNode.isConnected) continue;
+        const newTokens = scanTextNode(textNode, settings, known, canExplain, codeWords, examWords, seen);
+        if (newTokens.length) {
+          tokens.push(...newTokens);
+          hasNewTokens = true;
+        }
+      }
+
+      // 3. 增量扫描新增的 DOM 子树
+      for (const node of addedNodes) {
+        if (!node.isConnected) continue;
+        const newTokens = scanSubtree(node, settings, known, canExplain, codeWords, examWords, seen);
+        if (newTokens.length) {
+          tokens.push(...newTokens);
+          hasNewTokens = true;
+        }
+      }
+
+      if (tokens.length > MAX_TOKENS) {
+        tokens = tokens.slice(0, MAX_TOKENS);
+      }
+
+      // 仅当 Token 发生增减时才重新提交高亮与更新索引，零冗余重绘
+      if (hasNewTokens || tokens.length !== prevLength) {
+        paint(tokens);
+        hover.setTokens(tokens);
+      }
+    }
+
     const observer = new MutationObserver((records) => {
-      // 我们自己往页面里插的那个卡片宿主不该触发重扫，否则就是死循环。
-      // （卡片内容在 shadow root 里，本来就不会冒泡到这个 observer。）
       const host = card.element;
       if (records.every((r) => r.target === host || host.contains(r.target))) return;
-      clearTimeout(pending);
-      pending = setTimeout(() => schedule(run), 500);
+      pendingBatch.push(...records);
+      if (batchTimer === undefined) {
+        batchTimer = setTimeout(processBatch, 40);
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 

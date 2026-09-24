@@ -47,7 +47,7 @@ const LEAVE_WORD_MS = 110;
 const LEAVE_CARD_MS = 40;
 
 export class HoverTracker {
-  private index = new Map<Text, Token[]>();
+  private index = new WeakMap<Text, Token[]>();
   private current?: Token;
   private showTimer?: number;
   private hideTimer?: number;
@@ -61,7 +61,7 @@ export class HoverTracker {
   constructor(private handlers: HoverHandlers) {}
 
   setTokens(tokens: Token[]) {
-    this.index.clear();
+    this.index = new WeakMap<Text, Token[]>();
     for (const token of tokens) {
       const list = this.index.get(token.node);
       if (list) list.push(token);
@@ -84,7 +84,7 @@ export class HoverTracker {
     this.abort = new AbortController();
     this.dragging = false;
     this.dismiss();
-    this.index.clear();
+    this.index = new WeakMap<Text, Token[]>();
   }
 
   /**
