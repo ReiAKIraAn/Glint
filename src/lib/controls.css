@@ -1,0 +1,159 @@
+/*
+ * 弹窗和设置页共用的控件外观。
+ *
+ * 两个页面的密度和字号不一样，但控件得是同一批零件——原生的滑块和下拉在这两处
+ * 各画各的，和卡片那套精修过的东西摆在一起就露怯了。开关本来就在两个文件里
+ * 各抄了一份，正好一起收进来。
+ *
+ * 用到的变量由各自的页面定义：
+ *   --fg --muted --faint --line --accent   基础色
+ *   --field-bg   输入框/下拉的底色（弹窗是白，设置页是比卡片略深的灰）
+ *   --track      滑轨、开关关闭态的槽色
+ *   --chevron    下拉右边那个箭头（带颜色，所以每套主题各给一份）
+ */
+
+/* ---------------------------------------------------------------- 滑块 */
+
+/*
+ * 原生滑块靠 accent-color 上色，轨道粗细、滑块大小、阴影都改不动，
+ * 各浏览器画出来还不一样。这里整个接管。
+ *
+ * 已填充的那一段不是第三个伪元素，是轨道背景上盖的一层渐变，宽度由 --p（0~1）算：
+ * 从半个滑块宽起步，到「整条减一个滑块宽」结束——这样填充的边缘正好落在滑块圆心上，
+ * 而不是差半个身位。刻度也按同一个式子定位，所以两者永远对得齐。
+ */
+input[type='range'] {
+  --thumb: 15px;
+  appearance: none; -webkit-appearance: none;
+  width: 100%; height: var(--thumb);
+  background: transparent; cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 999px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) left center / calc(var(--thumb) / 2 + var(--p, .5) * (100% - var(--thumb))) 100% no-repeat,
+    var(--track);
+}
+input[type='range']::-moz-range-track {
+  height: 5px; border-radius: 999px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) left center / calc(var(--thumb) / 2 + var(--p, .5) * (100% - var(--thumb))) 100% no-repeat,
+    var(--track);
+}
+input[type='range']::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: var(--thumb); height: var(--thumb);
+  margin-top: calc((5px - var(--thumb)) / 2);
+  border: none; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(16 20 28 / .10), 0 1px 3px rgb(16 20 28 / .28);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+input[type='range']::-moz-range-thumb {
+  width: var(--thumb); height: var(--thumb);
+  border: none; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(16 20 28 / .10), 0 1px 3px rgb(16 20 28 / .28);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+/* 抓住的时候胀一点点——拖动中手指底下是有东西的 */
+input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 1px rgb(16 20 28 / .12), 0 2px 6px rgb(16 20 28 / .30);
+}
+input[type='range']:active::-moz-range-thumb { transform: scale(1.15); }
+input[type='range']:focus { outline: none; }
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 35%, transparent), 0 1px 3px rgb(16 20 28 / .28);
+}
+
+/*
+ * 刻度：绝对定位钉在各自那一档的圆心上，不是 space-between。
+ * space-between 对齐的是文字的外边缘，两头那两个会各偏半个标签宽——
+ * A1 明明该在滑块起点上，看着却总是往左挪了一点。
+ */
+.ticks {
+  position: relative; height: 13px; margin-top: 5px;
+  font-size: 10.5px; color: var(--faint);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.ticks span { position: absolute; top: 0; transform: translateX(-50%); }
+.ticks span:nth-child(1) { left: calc(7.5px + 0 * (100% - 15px)); }
+.ticks span:nth-child(2) { left: calc(7.5px + .25 * (100% - 15px)); }
+.ticks span:nth-child(3) { left: calc(7.5px + .5 * (100% - 15px)); }
+.ticks span:nth-child(4) { left: calc(7.5px + .75 * (100% - 15px)); }
+.ticks span:nth-child(5) { left: calc(7.5px + 1 * (100% - 15px)); }
+
+/* ---------------------------------------------------------------- 下拉 */
+
+/*
+ * 原生下拉的箭头是系统画的，粗细和颜色都跟不上页面，而且 macOS 和 Windows 上
+ * 长得完全是两个东西。收掉换自己的。
+ */
+/*
+ * 这里只负责换箭头，不设 padding——两个页面各自的 select 规则用的是 padding 简写，
+ * 写在 @import 之后，会把这里的 padding-right 覆盖回去，选项文字就压到箭头底下了。
+ * 右边留多宽由各页自己声明，离它们的 padding 值近，改的时候不会漏。
+ */
+select {
+  appearance: none; -webkit-appearance: none;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 10px 6px;
+}
+
+/* ---------------------------------------------------------------- 开关
+   role="switch" 浏览器不会自动画成开关，样子还是方形复选框。
+   语义已经对了，这里只补外观。 */
+input[role='switch'] {
+  appearance: none; -webkit-appearance: none;
+  flex: none;
+  width: 36px; height: 21px;
+  border-radius: 999px;
+  background: var(--track);
+  /* 关闭态描一圈内边，槽才像是凹进去的，而不是贴上去的一块灰 */
+  box-shadow: inset 0 0 0 1px rgb(16 20 28 / .05);
+  position: relative;
+  cursor: pointer;
+  transition: background .18s ease;
+}
+input[role='switch']::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(16 20 28 / .3);
+  transition: transform .2s cubic-bezier(.3, .8, .4, 1);
+}
+input[role='switch']:checked { background: var(--accent); box-shadow: none; }
+input[role='switch']:checked::after { transform: translateX(15px); }
+
+/* ---------------------------------------------------------------- 焦点 */
+
+/* 键盘焦点：描边不贴着控件，留一格空隙才看得出是「套」在外面的一圈 */
+:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--accent) 65%, transparent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  input[role='switch'], input[role='switch']::after,
+  input[type='range']::-webkit-slider-thumb,
+  input[type='range']::-moz-range-thumb { transition: none; }
+}
+
+/* ---------------------------------------------------------------- 联系方式 */
+
+/*
+ * 作者链接。安静到底：正常态和周围的小字同色，只有停上去才亮一档。
+ * 这不是功能，是个署名，不该在任何时候把视线拽过去。
+ */
+.links { display: flex; align-items: center; gap: 12px; }
+.links a {
+  display: flex; color: var(--faint);
+  transition: color .12s;
+}
+.links a:hover { color: var(--fg); }
+.links svg { width: 14px; height: 14px; display: block; }

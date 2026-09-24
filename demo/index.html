@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glint 预览沙盒</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 40px 24px 120px;
+        font: 400 17px/1.75 Georgia, 'Times New Roman', 'Songti SC', serif;
+        color: #1c1f24;
+        background: #fdfcfa;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { color: #e2e0dc; background: #17181a; }
+      }
+      h1 { font-size: 30px; line-height: 1.25; letter-spacing: -.02em; }
+      h2 { margin-top: 36px; font-size: 21px; }
+      p { margin: 18px 0; }
+      code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; }
+      pre { padding: 14px; border-radius: 8px; background: rgb(128 128 128 / .1); overflow-x: auto; }
+
+      /* 控制条：改设置立刻重扫，方便对比三种标注样式 */
+      #bar {
+        position: fixed; inset: auto 0 0 0; z-index: 10;
+        display: flex; gap: 18px; align-items: center; justify-content: center; flex-wrap: wrap;
+        padding: 11px 16px;
+        background: light-dark(#fffffff2, #202225f2);
+        border-top: 1px solid light-dark(#e4e7ec, #33383f);
+        backdrop-filter: blur(8px);
+        font: 400 12.5px/1.4 -apple-system, system-ui, sans-serif;
+      }
+      #bar label { display: flex; gap: 6px; align-items: center; }
+      #bar select, #bar input { font: inherit; accent-color: #3b6fe0; }
+      #bar b { font-variant-numeric: tabular-nums; }
+
+      /* 词形还原自检面板 */
+      #selftest {
+        margin-top: 48px; padding: 18px 20px; border-radius: 12px;
+        background: rgb(128 128 128 / .07);
+        font: 400 13px/1.7 ui-monospace, Menlo, monospace;
+      }
+      #selftest h3 { margin: 0 0 10px; font: 600 13px/1 -apple-system, system-ui, sans-serif; }
+      #selftest div { display: flex; gap: 8px; }
+      #selftest .bad { color: #d33; font-weight: 600; }
+      #selftest .ok { opacity: .75; }
+    </style>
+  </head>
+  <body>
+    <article>
+      <h1>What a coastline remembers</h1>
+
+      <p>
+        The tide had receded further than the fishermen could recall, exposing a
+        latticework of tidal channels that shimmered under an indifferent sky. Marisol
+        walked out across the flats, her boots sinking into sediment that had been
+        accumulating since before the village existed. Every few paces she stopped to
+        scrutinize something the water had abandoned — a vertebra, a shard of blue glass
+        worn opaque, the desiccated husk of a crab.
+      </p>
+
+      <p>
+        Her grandmother had been adamant that the sea was not indifferent at all, merely
+        inscrutable, and that the distinction mattered enormously. It was a proposition
+        Marisol had spent two decades trying to corroborate and had never quite managed to
+        refute either. The old woman's convictions were impervious to argument; she simply
+        outlasted her interlocutors.
+      </p>
+
+      <h2>The archive beneath</h2>
+
+      <p>
+        What the flats preserved was not history so much as its residue. Sediment
+        accretes in strata, and each stratum is a ledger of what the water was carrying
+        that year — ash from a distant conflagration, microplastics, the pollen of crops
+        long since supplanted. Geologists call this the stratigraphic record, but Marisol
+        preferred her grandmother's word for it: the remembering.
+      </p>
+
+      <p>
+        She had read that anthropogenic sediment now constitutes a measurable fraction of
+        what accumulates on continental shelves, and that this fraction is increasing at a
+        rate which some researchers find alarming and others consider merely notable. The
+        disparity in interpretation was itself instructive. Two people can look at the same
+        core sample and see either an admonition or a curiosity.
+      </p>
+
+      <p>
+        Consider the humble oyster, whose shell is an inadvertent instrument of great
+        precision. It lays down calcium carbonate in daily increments, and the width of
+        each increment is contingent on the temperature and salinity of the surrounding
+        water. A shell is therefore a transcript. Break one open and you can reconstruct,
+        with unnerving fidelity, the weather of a summer nobody wrote down.
+      </p>
+
+      <h2>What the code says</h2>
+
+      <p>
+        代码块里的英文不该被标注，因为它不是要读的散文。下面这段会被扫描器整个跳过：
+      </p>
+
+      <pre><code>const ubiquitous = await inscrutable.corroborate(sediment);
+if (!ubiquitous) throw new Error('anomalous stratigraphy');</code></pre>
+
+      <p>
+        专有名词也不该被标：Marisol, Anthropocene, Patagonia, Groningen, Stanislaw. 全大写的
+        缩写同理：NOAA, IPCC, USGS. 但句首的大写词是正常处理的，比如这句开头的
+        Sedimentation happens regardless of who is watching.
+      </p>
+
+      <h2>Technical prose</h2>
+
+      <p>
+        The converter supports 3rd-party plugins. Plugins are disabled by default. To list
+        installed ones, search GitHub for the hashtag below. Plugin discovery walks the
+        entry points and instantiates each handler lazily.
+      </p>
+
+      <pre><code>markitdown --list-plugins path-to-file.pdf
+# search for #markitdown-plugin on GitHub</code></pre>
+
+      <section id="selftest">
+        <h3>词形还原自检（真实调用 resolve()）</h3>
+        <div id="selftestBody">running…</div>
+      </section>
+    </article>
+
+    <div id="bar">
+      <label>水平 <input type="range" id="level" min="1" max="5" step="1" value="3" /><b id="levelOut">B1</b></label>
+      <label>样式
+        <select id="style">
+          <option value="dotted">虚线</option>
+          <option value="underline">下划线</option>
+          <option value="tint">底色</option>
+        </select>
+      </label>
+      <label>已过
+        <select id="passedExam">
+          <option value="0">—</option>
+          <option value="1">中考</option>
+          <option value="2">高考</option>
+          <option value="3">四级</option>
+          <option value="4">六级</option>
+          <option value="5">考研</option>
+        </select>
+      </label>
+      <label>备考
+        <select id="targetExam">
+          <option value="">—</option>
+          <option value="cet4">四级</option>
+          <option value="cet6">六级</option>
+          <option value="ky">考研</option>
+          <option value="toefl">托福</option>
+          <option value="ielts">雅思</option>
+          <option value="gre">GRE</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="aiReady" checked /> AI 就绪</label>
+      <label><input type="checkbox" id="oncePerPage" checked /> 只标第一次</label>
+      <label><input type="checkbox" id="markUnknown" checked /> 标生僻词</label>
+      <span>标注 <b id="count">0</b> 词</span>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

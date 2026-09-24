@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="manifest.open_in_tab" content="true" />
+    <title>Glint 设置</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap">
+        <h1>Glint</h1>
+        <p>阅读英文网页时，按你的水平把难词标出来。</p>
+        <nav class="tabs" id="tabs">
+          <button type="button" data-tab="mark" aria-selected="true">标注</button>
+          <button type="button" data-tab="ai" aria-selected="false">AI 服务商</button>
+          <button type="button" data-tab="data" aria-selected="false">我的词</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap layout" data-tab="mark">
+      <div class="column">
+        <div class="panel" data-panel="mark">
+        <!-- 三级筛子放在一起。它们是同一件事的三个阶段，拆成三张卡就看不出关系了。 -->
+        <section class="card">
+          <h2>标注哪些词</h2>
+          <p class="lede">三项都是减法，从难到易一层层筛，不会互相打架。</p>
+
+          <div class="row">
+            <div class="key"><b>我的水平</b><i>比这个难的才标</i></div>
+            <div class="val">
+              <!-- 滑轨和刻度装在同一个 .track 里，刻度才能按滑轨的宽度定位 -->
+              <div class="slider">
+                <div class="track">
+                  <input type="range" id="level" min="1" max="5" step="1" />
+                  <div class="ticks"><span>A1</span><span>A2</span><span>B1</span><span>B2</span><span>C1</span></div>
+                </div>
+                <output id="levelLabel"></output>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="key"><b>我通过的考试</b><i>这些考纲里的词不再标</i></div>
+            <div class="val">
+              <select id="passedExam">
+                <option value="0">不设置</option>
+                <option value="1">中考</option>
+                <option value="2">高考</option>
+                <option value="3">四级 CET-4</option>
+                <option value="4">六级 CET-6</option>
+                <option value="5">考研</option>
+              </select>
+              <p class="note" id="examNote"></p>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="key"><b>备考目标</b><i>只标这份词表里的</i></div>
+            <div class="val">
+              <select id="targetExam">
+                <option value="">关闭</option>
+                <option value="cet4">四级 CET-4</option>
+                <option value="cet6">六级 CET-6</option>
+                <option value="ky">考研</option>
+                <option value="toefl">托福 TOEFL</option>
+                <option value="ielts">雅思 IELTS</option>
+                <option value="gre">GRE</option>
+              </select>
+              <p class="note" id="targetNote"></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>外观</h2>
+          <div class="row">
+            <div class="key"><b>标注样式</b></div>
+            <div class="val">
+              <div class="styles" id="style">
+                <label><input type="radio" name="style" value="dotted" /><span class="swatch dotted">reading</span>虚线</label>
+                <label><input type="radio" name="style" value="underline" /><span class="swatch underline">reading</span>下划线</label>
+                <label><input type="radio" name="style" value="tint" /><span class="swatch tint">reading</span>底色</label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>不标注的网站</h2>
+          <p class="lede">
+            在这些站上完全不标注。加的入口在工具栏弹窗里——你正在那个站上的时候，
+            关掉它只要一下。子域跟着一起关：写 <code>wikipedia.org</code>，
+            <code>en.wikipedia.org</code> 也算。
+          </p>
+          <div id="siteList" class="chips"></div>
+        </section>
+
+        <section class="card">
+          <h2>行为</h2>
+          <label class="toggle">
+            <span><b>启用标注</b><i>关掉后所有页面都不标</i></span>
+            <input type="checkbox" id="enabled" role="switch" />
+          </label>
+          <label class="toggle">
+            <span><b>同一个词只标第一次</b><i>不然长文章会像圣诞树</i></span>
+            <input type="checkbox" id="oncePerPage" role="switch" />
+          </label>
+          <label class="toggle">
+            <span><b>标注词库外的生僻词</b><i>需要 API Key——没有 Key 时本地词库对这些词无话可说，所以不标</i></span>
+            <input type="checkbox" id="markUnknown" role="switch" />
+          </label>
+        </section>
+
+        </div>
+
+        <div class="panel" data-panel="ai" hidden>
+        <section class="card">
+          <h2>AI 语境释义</h2>
+          <!--
+            数据披露。位置在最前面、在开关之前，是因为它要在用户动手配置之前被看到。
+            Chrome 应用商店的用户数据政策要求这类说明必须出现在产品自己的界面里，
+            放在商店描述或隐私政策里不算数。
+          -->
+          <p class="disclose">
+            点卡片上的「AI 释义」时，会把<b>这个词</b>和<b>它所在的那一句</b>发送给你在下面选择的
+            服务商，并附上你填写的 API Key 作鉴权。<b>不发送整页内容、网址或页面标题</b>，
+            也不经过本扩展作者的任何服务器——我们没有服务器。关掉下面的「启用」后，扩展完全不联网。
+          </p>
+          <label class="toggle">
+            <span><b>启用</b><i>关掉后完全不联网</i></span>
+            <input type="checkbox" id="aiEnabled" role="switch" />
+          </label>
+
+          <p class="summary" id="aiSummary"></p>
+
+          <!-- 卡片由 main.ts 从 PROVIDERS 表里生成，加一家不用改这里 -->
+          <div class="providers" id="providerCards"></div>
+
+          <div class="row" id="baseURLRow" hidden>
+            <div class="key"><b>接口地址</b><i>预置的可以改</i></div>
+            <div class="val">
+              <input type="url" id="baseURL" spellcheck="false" />
+              <p class="note">保存时会向浏览器申请访问这个域的权限。</p>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="key"><b>API Key</b></div>
+            <div class="val">
+              <div class="inline">
+                <input type="password" id="apiKey" autocomplete="off" spellcheck="false" />
+                <button id="saveKey">保存</button>
+                <button id="clearKey" class="ghost">清除</button>
+              </div>
+              <p class="note">
+                <span id="keyStatus"></span>
+                <a id="keyLink" href="#" target="_blank" rel="noreferrer noopener" hidden>去拿 Key ↗</a>
+              </p>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="key"><b>模型</b><i>解释一个词，快比强更重要</i></div>
+            <div class="val">
+              <div class="inline">
+                <input type="text" id="model" list="modelList" spellcheck="false" autocomplete="off" />
+                <button id="fetchModels" class="ghost">拉取列表</button>
+              </div>
+              <datalist id="modelList"></datalist>
+              <select id="modelPick" hidden></select>
+              <p class="note" id="modelNote">配好 Key 后点「拉取列表」，直接从这家的接口里选。</p>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="key"><b>思考强度</b><i>卡片是停着等的，越高等越久</i></div>
+            <div class="val">
+              <select id="effort">
+                <option value="off">不思考 · 最快</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高 · 最慢</option>
+              </select>
+              <p class="note" id="effortNote"></p>
+            </div>
+          </div>
+        </section>
+
+        </div>
+
+        <div class="panel" data-panel="data" hidden>
+        <section class="card">
+          <h2>我的词</h2>
+          <p class="lede">卡片上点「认识」的词，以后全站不再标注。</p>
+          <div class="stats">
+            <div><b id="knownCount">0</b><span>已认识</span></div>
+          </div>
+          <div id="knownList" class="chips"></div>
+          <div class="inline">
+            <button id="resetKnown" class="ghost danger">清空已认识</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>已生成的释义</h2>
+          <p class="lede">
+            点了卡片上那个按钮才会生成，生成一次就存在本机——同一个词以后不再花第二次钱。
+            删掉哪条，下次遇到那个词才会重新生成。
+          </p>
+          <div class="stats">
+            <div><b id="explainedCount">0</b><span>已生成</span></div>
+          </div>
+          <ul id="explainedList" class="entries"></ul>
+          <div class="inline">
+            <button id="exportAnki">导出到 Anki</button>
+            <button id="resetExplained" class="ghost danger">全部删除</button>
+          </div>
+          <p class="note" id="ankiNote">
+            存成一个文本文件，在 Anki 里点 Import File 选中它就行。牌组自动建成 Glint，
+            正面是词和音标，背面是释义、你读到的那一句和它的翻译。
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>备份</h2>
+          <p class="lede">
+            导出设置、已认识的词和已生成的释义，存成一个 JSON 文件。
+            <b>API Key 不在里面</b>——那是密钥，不该躺在一个会被随手转发的文件里，
+            换机器请重新填一次。
+          </p>
+          <div class="inline">
+            <button id="exportData">导出备份</button>
+            <button id="importData" class="ghost">导入备份…</button>
+            <input type="file" id="importFile" accept="application/json,.json" hidden />
+          </div>
+          <p class="note" id="backupNote">导入是合并：已认识的词取并集，同一个词的释义保留较新的那条。</p>
+        </section>
+
+        </div>
+
+        <footer>
+          <!-- 署名是数据条款要求的：CEFR-J 要注明出处，Octanove 是 CC BY-SA，装进扩展里分发也算分发。 -->
+          <span class="credits">
+            词库：<a href="https://github.com/skywind3000/ECDICT" target="_blank" rel="noreferrer noopener">ECDICT</a>（MIT）·
+            <a href="https://github.com/openlanguageprofiles/olp-en-cefrj" target="_blank" rel="noreferrer noopener">CEFR-J Vocabulary Profile</a>（© Tono Laboratory, TUFS）·
+            <a href="https://github.com/openlanguageprofiles/olp-en-cefrj" target="_blank" rel="noreferrer noopener">Octanove C1/C2 Profile</a>（<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noreferrer noopener">CC BY-SA 4.0</a>）。
+            分级、释义、音标全部在本机完成，不联网。
+          </span>
+          <span class="links" id="links"></span>
+        </footer>
+      </div>
+
+      <!-- 预览调用的是真的 scan / paint，不是模拟。改上面任何一项这里立刻重画。 -->
+      <aside class="preview">
+        <div class="preview-card">
+          <div class="preview-head">
+            <b>实时预览</b>
+            <span id="previewCount"></span>
+          </div>
+          <div class="preview-body" id="previewBody">
+            <p>
+              The tide had receded further than the fishermen could recall, exposing a
+              latticework of tidal channels that shimmered under an indifferent sky. She
+              stopped to scrutinize something the water had abandoned — a vertebra, a shard
+              of blue glass worn opaque, the desiccated husk of a crab.
+            </p>
+            <p>
+              Sediment accretes in strata, and each stratum is a ledger of what the water was
+              carrying that year. Consider the humble oyster, whose shell is an inadvertent
+              instrument of great precision: break one open and you can reconstruct, with
+              unnerving fidelity, the weather of a summer nobody wrote down.
+            </p>
+          </div>
+          <p class="preview-foot" id="previewFoot"></p>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

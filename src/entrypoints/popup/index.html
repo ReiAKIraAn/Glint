@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Glint</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">
+        <b>Glint</b>
+        <span id="stats">读取中…</span>
+      </div>
+      <input type="checkbox" id="enabled" role="switch" aria-label="启用标注" />
+    </header>
+
+    <!-- 站点开关：你正在这个站上，关掉它的入口就该在这儿，而不是设置页里 -->
+    <section class="block site" id="siteRow" hidden>
+      <label class="line">
+        <span><b id="siteHost"></b><i>在这个网站上标注</i></span>
+        <input type="checkbox" id="siteEnabled" role="switch" aria-label="在这个网站上标注" />
+      </label>
+    </section>
+
+    <section class="block">
+      <div class="head">
+        <span>我的水平<button type="button" class="hint" aria-label="说明"
+          data-tip="标注只做减法：比这个水平难的词才会被标出来，等于或低于的一律不碰。"></button></span>
+        <output id="levelLabel"></output>
+      </div>
+      <input type="range" id="level" min="1" max="5" step="1" />
+      <div class="ticks"><span>A1</span><span>A2</span><span>B1</span><span>B2</span><span>C1</span></div>
+    </section>
+
+    <section class="block rows">
+      <div class="line">
+        <span><label for="passedExam">我通过的考试</label><button type="button" class="hint" aria-label="说明"
+          data-tip="选了之后，这个考纲及以下的词全部不再标注——相当于一次把几千个词标成「我认识」。"></button></span>
+        <select id="passedExam">
+          <option value="0">不设置</option>
+          <option value="1">中考</option>
+          <option value="2">高考</option>
+          <option value="3">四级</option>
+          <option value="4">六级</option>
+          <option value="5">考研</option>
+        </select>
+      </div>
+      <div class="line">
+        <span><label for="targetExam">备考目标</label><button type="button" class="hint" aria-label="说明"
+          data-tip="只标这份考纲里的词，而且仍然要高于你的水平——两个条件取交集，不是把水平那条替换掉。"></button></span>
+        <select id="targetExam">
+          <option value="">关闭</option>
+          <option value="cet4">四级</option>
+          <option value="cet6">六级</option>
+          <option value="ky">考研</option>
+          <option value="toefl">托福</option>
+          <option value="ielts">雅思</option>
+          <option value="gre">GRE</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="block counts">
+      <div><b id="knownCount">0</b><span>已认识</span></div>
+      <div><b id="aiState">—</b><span>AI 释义</span></div>
+    </section>
+
+    <button id="options">全部设置</button>
+    <div class="links" id="links"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,156 @@
+@import '../../lib/controls.css';
+
+:root {
+  --bg: #fff;
+  --fg: #17191d;
+  --muted: #5f6875;
+  --faint: #949ca8;
+  --line: #e6e8ec;
+  --soft: #f4f5f7;
+  --accent: oklch(56% 0.17 258);
+  /* controls.css 要的三个 */
+  --field-bg: #fff;
+  --track: #e2e5ea;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1e23; --fg: #e9ebee; --muted: #9aa2ad; --faint: #767e8a;
+    --line: #2c3037; --soft: #23272d; --accent: oklch(74% 0.14 258);
+    --field-bg: #23272d;
+    --track: #343941;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2398a0ab' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+body {
+  width: 296px;
+  padding: 14px 16px 16px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.title b { font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
+.title span { font-size: 11.5px; color: var(--muted); }
+header input { accent-color: var(--accent); }
+
+.block { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
+
+.head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 12px; color: var(--muted);
+}
+.head output { color: var(--accent); font-weight: 560; font-size: 11.5px; }
+#level { margin-top: 8px; }
+
+/* 站点那一行：主机名给正文色，说明压成小字——先看是哪个站，再看开关管什么 */
+.site .line { cursor: pointer; }
+.site span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.site b {
+  font-size: 12.5px; font-weight: 560; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.site i { font-style: normal; font-size: 10.5px; color: var(--faint); }
+
+.rows { display: flex; flex-direction: column; gap: 9px; }
+.line { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.line span { font-size: 12.5px; color: var(--muted); }
+.line label { cursor: pointer; }
+
+/* ---------------------------------------------------------------- 说明气泡 */
+
+/*
+ * 弹窗里没地方写小字注解，但「我通过的考试」这种选项不解释一句根本猜不出是干嘛的。
+ * 所以做成一个可点可聚焦的小圆点，鼠标停上去（或键盘聚焦）才展开。
+ */
+.head { position: relative; }
+.hint {
+  width: 14px; height: 14px; margin-left: 5px; padding: 0;
+  border: none; border-radius: 50%;
+  background: var(--soft); color: var(--faint);
+  font: inherit; font-size: 10px; font-weight: 700; line-height: 14px;
+  vertical-align: -2px; cursor: help;
+  transition: background .12s, color .12s;
+}
+.hint::before { content: 'i'; font-family: Georgia, 'Times New Roman', serif; font-style: italic; }
+.hint:hover, .hint:focus-visible {
+  background: color-mix(in oklch, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+/* 气泡贴着这一行往下展开，左右钉在行宽上，不会顶出弹窗 */
+.hint::after {
+  content: attr(data-tip);
+  position: absolute; left: 0; right: 0; top: calc(100% + 7px);
+  z-index: 5; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .06), 0 10px 26px -8px rgb(0 0 0 / .28);
+  color: var(--muted); font-size: 11.5px; font-weight: 400; line-height: 1.55;
+  text-align: left; white-space: normal;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .12s ease, visibility .12s;
+}
+.hint:hover::after, .hint:focus-visible::after { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .hint::after { transition: none; } }
+select {
+  flex: none; width: 118px;
+  /* 右边给箭头让出位置（见 controls.css） */
+  padding: 5px 28px 5px 8px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background-color: var(--field-bg); color: var(--fg);
+  font: inherit; font-size: 12px;
+  transition: border-color .12s;
+}
+select:hover { border-color: color-mix(in oklch, var(--accent) 35%, var(--line)); }
+
+/*
+ * 两块数字。标签在上、数字在下——先读「已认识」再读「37」比反过来顺，
+ * 而且两格的标签行对齐了，数字长短不一也不会把版面拉歪。
+ */
+.counts { display: flex; gap: 8px; }
+.counts div {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column-reverse; gap: 3px;
+  padding: 10px 11px; border-radius: 10px;
+  background: var(--soft);
+  box-shadow: inset 0 0 0 1px rgb(16 20 28 / .03);
+}
+.counts b {
+  font-size: 17px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.counts b.off { color: var(--faint); font-size: 13px; line-height: 1.5; }
+.counts b.on { color: var(--accent); font-size: 13px; line-height: 1.5; }
+.counts span { font-size: 10.5px; color: var(--faint); }
+
+/*
+ * 去设置页：做成一整行可点的条目，不是一颗描边按钮。
+ * 它是「走出去」而不是「确认」，列表项的样子比按钮更贴切；末尾那个箭头
+ * 已经把「点了会离开这里」说清楚了，不必再用一圈边把它围起来。
+ */
+#options {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; margin: 12px 0 -4px; padding: 9px 10px;
+  border: none; border-radius: 9px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+#options::after {
+  content: '›';
+  font-size: 15px; line-height: 1; color: var(--faint);
+  transition: transform .14s ease, color .12s;
+}
+#options:hover { color: var(--fg); background: var(--soft); }
+#options:hover::after { color: var(--fg); transform: translateX(2px); }
+@media (prefers-reduced-motion: reduce) { #options::after { transition: none; } }
+
+/* 作者链接：跟「全部设置」那一行的箭头对齐，不另占一块地方 */
+#links { justify-content: flex-end; padding: 8px 10px 0; }

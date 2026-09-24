@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+  商店截图用：把 296px 宽的弹窗摆在一块中性底上，凑成 1280×800。
+  弹窗本身是 iframe 里那个真页面，不是复刻的。只在沙盒里用。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Glint 弹窗</title>
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body {
+        display: grid; place-items: center;
+        background: radial-gradient(120% 100% at 50% 0%, #f2f4f7 0%, #e6e9ee 100%);
+        font: 13px -apple-system, system-ui, sans-serif;
+      }
+      .frame {
+        width: 296px; height: 452px;
+        border-radius: 14px; overflow: hidden;
+        background: #fff;
+        box-shadow: 0 2px 6px rgb(16 20 28 / .06), 0 24px 60px -20px rgb(16 20 28 / .32);
+      }
+      iframe { width: 100%; height: 100%; border: 0; display: block; }
+    </style>
+  </head>
+  <body>
+    <div class="frame"><iframe src="/src/entrypoints/popup/index.html"></iframe></div>
+  </body>
+</html>

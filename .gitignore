@@ -1,0 +1,15 @@
+node_modules
+.wxt
+.output
+stats.html
+.DS_Store
+
+# 本机工具配置
+.claude/
+
+# 宣传片工程和它用到的测量脚本，不随仓库发布
+video/
+tests/_measure.mts
+
+# 66MB 原始词库，重新拉取见 README「开发」
+data/ecdict.csv

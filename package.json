@@ -1,0 +1,47 @@
+{
+  "name": "glint",
+  "private": true,
+  "version": "1.1.1",
+  "type": "module",
+  "//imports": "只给 Node 跑测试用：wxt build 和 vite demo 各自在 resolve.alias 里先拦掉了 #imports，走不到这里",
+  "imports": {
+    "#imports": "./tests/imports-stub.ts"
+  },
+  "description": "阅读英文网页时，按你的水平把难词标出来。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/whyubel1eve/glint.git"
+  },
+  "homepage": "https://github.com/whyubel1eve/glint#readme",
+  "bugs": "https://github.com/whyubel1eve/glint/issues",
+  "scripts": {
+    "data": "tsx scripts/build-data.ts",
+    "icons": "tsx scripts/build-icons.ts",
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "postinstall": "wxt prepare",
+    "demo": "vite --config vite.demo.config.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.41",
+    "@ai-sdk/google": "^4.0.50",
+    "@ai-sdk/openai": "^4.0.46",
+    "@ai-sdk/openai-compatible": "^3.0.36",
+    "ai": "^7.0.78"
+  },
+  "devDependencies": {
+    "@lobehub/icons-static-svg": "^1.94.0",
+    "@types/node": "^26.2.0",
+    "csv-parse": "^7.0.2",
+    "happy-dom": "^20.11.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "wxt": "^0.21.4"
+  }
+}

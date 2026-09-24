@@ -1,0 +1,456 @@
+@import '../../lib/controls.css';
+
+:root {
+  --bg: #f6f7f8;
+  --panel: #fff;
+  --fg: #17191d;
+  --muted: #5f6875;
+  --faint: #949ca8;
+  --line: #e6e8ec;
+  --soft: #f2f3f5;
+  --accent: oklch(56% 0.17 258);
+  --danger: oklch(56% 0.19 25);
+  /*
+   * 两层影子：贴边那层给卡片一个实实在在的落点，远处那层是散开的环境光。
+   * 只用一层的话，浅了像贴纸、深了像在飘。
+   */
+  --shadow: 0 1px 2px rgb(16 20 28 / .04), 0 10px 24px -14px rgb(16 20 28 / .16);
+  /* 深色下卡片不是纯黑，顶边补一道极淡的高光，边缘才立得住 */
+  --sheen: transparent;
+  --field-bg: #fbfbfc;
+  --track: #e2e5ea;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121418;
+    --panel: #1b1e23;
+    --fg: #e9ebee;
+    --muted: #9aa2ad;
+    --faint: #767e8a;
+    --line: #2c3037;
+    --soft: #23272d;
+    --accent: oklch(74% 0.14 258);
+    --danger: oklch(70% 0.16 25);
+    --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 10px 26px -14px rgb(0 0 0 / .6);
+    --sheen: rgb(255 255 255 / .055);
+    --field-bg: #16191d;
+    --track: #343941;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2398a0ab' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+/* ---------------------------------------------------------------- 顶栏 */
+
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  padding: 22px 0 18px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: saturate(1.6) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar h1 { font-size: 19px; font-weight: 620; letter-spacing: -.015em; }
+.topbar p { margin-top: 2px; color: var(--muted); font-size: 13px; }
+
+/* ---------------------------------------------------------------- 标签页 */
+
+/*
+ * 底边贴着 topbar 那条分隔线，选中的一段自己顶上去——不做胶囊也不做背景块，
+ * 免得三个按钮在一个本来就很安静的页面上抢戏。
+ */
+.tabs { display: flex; gap: 2px; margin: 14px 0 -19px; }
+.tabs button {
+  padding: 7px 14px 10px;
+  border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 13px; cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.tabs button:hover { color: var(--fg); }
+.tabs button[aria-selected='true'] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
+
+.panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/*
+ * .row / .panel 这些都自带 display，会盖过浏览器给 [hidden] 的那条 display:none，
+ * 于是 JS 里设了 hidden 的行照样显示出来。统一在这里压住。
+ */
+[hidden] { display: none !important; }
+
+/* ---------------------------------------------------------------- 两栏 */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 28px;
+  align-items: start;
+  padding-top: 26px;
+  padding-bottom: 72px;
+}
+/*
+ * 预览只跟「标注」那一页有关，别的页收掉。
+ *
+ * 但收掉之后不能让内容顺势铺满 1120px——那一页的控件本来就只有一个下拉、
+ * 一个输入框，摊在一千多像素宽的白板上，每一行右边都是三四百像素的空地，
+ * 看着不是「宽敞」是「没做完」。所以给个上限，让它保持一栏文档的宽度。
+ */
+.layout:not([data-tab='mark']) { grid-template-columns: minmax(0, 1fr); }
+.layout:not([data-tab='mark']) .preview { display: none; }
+.layout:not([data-tab='mark']) .column { max-width: 820px; }
+
+/* 预览挤到放不下就落到设置下方，而不是把两边都压扁 */
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .preview { order: -1; }
+}
+
+.column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* ---------------------------------------------------------------- 卡片 */
+
+.card {
+  padding: 20px 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 var(--sheen), var(--shadow);
+}
+.card h2 {
+  font-size: 12px; font-weight: 640; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--faint);
+}
+.lede { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+
+/*
+ * 数据披露。比 .lede 重一档——它不是介绍文案，是一条必须被读到的说明，
+ * 但也不该做成警告色：这里没有风险要警示，只是把「什么会被发出去」讲清楚。
+ */
+.disclose {
+  margin-top: 10px; padding: 11px 13px;
+  border: 1px solid color-mix(in oklch, var(--accent) 20%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--accent) 5%, transparent);
+  color: var(--muted); font-size: 12.5px; line-height: 1.75;
+}
+.disclose b { color: var(--fg); font-weight: 600; }
+.lede b { color: var(--fg); font-weight: 600; }
+.lede.muted { color: var(--faint); font-size: 12px; }
+code {
+  padding: 1px 5px; border-radius: 4px; background: var(--soft);
+  font-family: ui-monospace, Menlo, monospace; font-size: .88em;
+}
+
+/* label 在左、控件在右。设置页该长这样，而不是一列表单堆下来。 */
+.row {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+}
+.card > .row:first-of-type { margin-top: 12px; }
+.key { display: flex; flex-direction: column; gap: 2px; padding-top: 5px; }
+.key b { font-weight: 520; font-size: 13.5px; }
+.key i { font-style: normal; color: var(--faint); font-size: 11.5px; line-height: 1.5; }
+.val { min-width: 0; }
+.note { margin-top: 7px; font-size: 11.5px; color: var(--faint); min-height: 1.5em; }
+/* ---------------------------------------------------------------- 服务商卡片 */
+
+.summary {
+  margin: 4px 0 16px; padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted); font-size: 12.5px;
+}
+.summary b { color: var(--fg); font-weight: 600; }
+
+.providers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 8px;
+}
+
+/*
+ * 一格一个服务商。选中态只靠一圈描边和一层极淡的底色——十一张卡片并排，
+ * 谁的对比度大一点都会先跳出来，所以除了「选中」之外一律保持安静。
+ */
+.pcard {
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+  font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+  transition: border-color .14s, background .14s, box-shadow .14s;
+}
+.pcard:hover { border-color: color-mix(in oklch, var(--accent) 32%, var(--line)); }
+.pcard[aria-pressed='true'] {
+  border-color: transparent;
+  background: color-mix(in oklch, var(--accent) 6%, var(--panel));
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.picon { display: flex; font-size: 21px; line-height: 1; opacity: .82; transition: opacity .14s; }
+.pcard:hover .picon, .pcard[aria-pressed='true'] .picon { opacity: 1; }
+.pname {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 500; letter-spacing: -.005em;
+}
+/* 右上角一点：这家的 Key 已经存过了 */
+.pdot {
+  position: absolute; top: 10px; right: 10px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: color-mix(in oklch, var(--accent) 75%, transparent);
+}
+
+/* 服务商那一页现在独占整行：输入框撑满一格，但别拉太长，看着散 */
+.panel[data-panel='ai'] input[type='text'],
+.panel[data-panel='ai'] input[type='url'],
+.panel[data-panel='ai'] input[type='password'],
+.panel[data-panel='ai'] select { width: 100%; max-width: 480px; }
+/* Key、地址、模型名都是标识符，等宽字体里 l/1/I、0/O 才分得清 */
+#apiKey, #baseURL, #model, #modelPick {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.panel[data-panel='ai'] .inline { max-width: 480px; }
+#providerNote { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+/* 拉回来的模型列表：跟在输入框下面，比它矮一号，是个补充而不是主控件 */
+#modelPick { margin-top: 7px; padding: 6px 10px; font-size: 12.5px; }
+
+[data-tone='ok'] { color: var(--accent); }
+[data-tone='bad'] { color: var(--danger); }
+
+/* 「去拿 Key」跟在状态后面，别抢戏 */
+#keyLink { margin-left: 8px; color: var(--accent); text-decoration: none; }
+#keyLink:hover { text-decoration: underline; }
+
+@media (max-width: 620px) {
+  .row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .key { padding-top: 0; }
+}
+
+/* ---------------------------------------------------------------- 控件 */
+
+/*
+ * 滑轨和刻度装在同一个 .track 里，所以刻度的 100% 就是滑轨的 100%——
+ * 原先靠一个 140px 的右边距去凑 output 那一列的宽度，文案一长就对不齐了。
+ */
+.slider { display: flex; align-items: flex-start; gap: 16px; }
+.slider .track { flex: 1; min-width: 0; }
+.slider output {
+  flex: none; min-width: 118px; text-align: right; line-height: 15px;
+  font-size: 12.5px; font-weight: 560; color: var(--accent);
+}
+
+/* url 之前漏在外面，那一格就掉回浏览器默认样式了，和旁边几格对不上 */
+select, input[type='password'], input[type='text'], input[type='url'] {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background-color: var(--field-bg);
+  color: var(--fg);
+  font: inherit; font-size: 13px;
+  transition: border-color .12s;
+}
+/* 右边给箭头让出位置（见 controls.css） */
+select { padding-right: 30px; }
+input[type='password'], input[type='url'] { font-family: ui-monospace, Menlo, monospace; }
+select:hover, input:hover { border-color: color-mix(in oklch, var(--accent) 35%, var(--line)); }
+
+.inline { display: flex; gap: 8px; align-items: center; }
+.inline > input { flex: 1; min-width: 0; }
+
+button {
+  flex: none;
+  padding: 8px 15px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  font: inherit; font-size: 13px; cursor: pointer;
+  transition: filter .12s, background .12s, color .12s, border-color .12s;
+}
+button:hover { filter: brightness(1.06); }
+button:active { transform: translateY(.5px); filter: brightness(.97); }
+@media (prefers-reduced-motion: reduce) { button:active { transform: none; } }
+button.ghost { background: transparent; color: var(--muted); border-color: var(--line); }
+button.ghost:hover { color: var(--fg); background: var(--soft); filter: none; }
+button.ghost.danger:hover { color: var(--danger); border-color: var(--danger); background: transparent; }
+
+/* 开关行 */
+.toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  cursor: pointer;
+}
+.card > .toggle:first-of-type { margin-top: 12px; }
+.toggle span { display: flex; flex-direction: column; gap: 2px; }
+.toggle b { font-weight: 520; font-size: 13.5px; }
+.toggle i { font-style: normal; color: var(--faint); font-size: 11.5px; line-height: 1.5; }
+.toggle input { accent-color: var(--accent); }
+
+/* 样式三选一 */
+.styles { display: flex; gap: 8px; }
+.styles label {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 13px 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  font-size: 12px; color: var(--muted); cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.styles label:has(:checked) {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+  color: var(--fg);
+}
+/*
+ * 单选按钮本身藏起来，整张卡片就是点击区。
+ *
+ * 但藏的方式是 opacity:0，连它的 :focus-visible 描边一起透明了——用键盘 Tab
+ * 走到这里，焦点确实落上去了，屏幕上却什么都看不见，看起来就是「焦点凭空消失」。
+ * 所以把描边转交给 label。
+ */
+.styles input { position: absolute; opacity: 0; pointer-events: none; }
+.styles label:has(:focus-visible) {
+  outline: 2px solid color-mix(in oklch, var(--accent) 65%, transparent);
+  outline-offset: 2px;
+}
+.swatch { font-size: 14px; color: var(--fg); }
+.swatch.dotted {
+  text-decoration: underline dotted 2px color-mix(in oklch, var(--accent) 75%, currentColor);
+  text-underline-offset: .22em;
+}
+.swatch.underline {
+  text-decoration: underline solid 1.5px color-mix(in oklch, var(--accent) 65%, currentColor);
+  text-underline-offset: .22em;
+}
+.swatch.tint { background: color-mix(in oklch, var(--accent) 16%, transparent); }
+
+/*
+ * 统计。不用 flex:1 平分——「我的词」那张卡片里只有一个数字，一平分就成了
+ * 一条横贯八百像素的灰带，为了显示一个「0」。给个固定下限，让它就是一小块牌子。
+ */
+.stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 12px; }
+.stats div {
+  flex: 0 0 auto; min-width: 148px;
+  display: flex; flex-direction: column-reverse; gap: 3px;
+  padding: 13px 15px; border-radius: 11px; background: var(--soft);
+  box-shadow: inset 0 0 0 1px rgb(16 20 28 / .03);
+}
+.stats b { font-size: 22px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stats span { font-size: 11.5px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- 我的词 */
+
+/* 已认识：词多的时候是一片标签云，逐行列反而看不过来 */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; max-height: 190px; overflow-y: auto; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); color: var(--fg);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.chip span { color: var(--faint); font-size: 13px; line-height: 1; }
+.chip:hover { border-color: var(--danger); color: var(--danger); background: color-mix(in oklch, var(--danger) 6%, transparent); }
+.chip:hover span { color: var(--danger); }
+
+.empty { margin: 0 0 12px; color: var(--faint); font-size: 12.5px; }
+/* 空状态也是一条 li，会顺手把 .entries 的描边继承过去，变成一条横贯整卡的空框 */
+.entries > li.empty { padding: 0; border: none; background: transparent; }
+
+/*
+ * 已生成的释义：折起来只有词 + 一句中文，点开才是全套。
+ * 这是你花过钱买来的东西，得看得见全貌；但列表首先要能扫，所以默认收着。
+ */
+.entries { list-style: none; margin: 0 0 12px; padding: 0; }
+.entries > li {
+  position: relative;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel);
+}
+.entries > li + li { margin-top: 6px; }
+.entries > li:has(details[open]) { border-color: color-mix(in oklch, var(--accent) 35%, var(--line)); }
+
+.entries summary {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 10px 76px 10px 13px;
+  cursor: pointer; list-style: none;
+}
+.entries summary::-webkit-details-marker { display: none; }
+.entries summary:hover { background: color-mix(in oklch, var(--accent) 4%, transparent); border-radius: 9px; }
+.entries summary b { flex: none; font-size: 13px; font-weight: 600; }
+.entries summary p {
+  flex: 1; min-width: 0; margin: 0;
+  color: var(--muted); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.entries summary time { flex: none; color: var(--faint); font-size: 11px; }
+/* 删除按钮压在行右边，不放进 summary 里——放进去点它会顺手把详情也展开 */
+.entries > li > button {
+  position: absolute; top: 8px; right: 10px;
+  padding: 3px 9px; font-size: 12px;
+}
+
+.detail { padding: 2px 13px 13px; }
+.detail .tag { margin-top: 10px; color: var(--faint); font-size: 11px; }
+.detail .tag:first-child { margin-top: 4px; }
+.detail .body { margin-top: 3px; font-size: 12.5px; line-height: 1.6; }
+.detail .body b { font-weight: 600; }
+.detail .body i { color: var(--muted); }
+.detail .body span { display: block; color: var(--muted); }
+
+footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding: 4px 2px; color: var(--faint); font-size: 11.5px; line-height: 1.7;
+}
+footer .links { flex: none; }
+footer .credits a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; }
+footer .credits a:hover { color: var(--muted); text-decoration-color: currentColor; }
+
+/* ---------------------------------------------------------------- 实时预览 */
+
+.preview { position: sticky; top: 96px; min-width: 0; }
+.preview-card {
+  padding: 18px 20px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 var(--sheen), var(--shadow);
+}
+.preview-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-bottom: 12px; border-bottom: 1px solid var(--line);
+}
+.preview-head b {
+  font-size: 12px; font-weight: 640; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--faint);
+}
+.preview-head span {
+  font-size: 12px; color: var(--accent); font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+/* 预览正文用衬线体，贴近真实阅读场景——标注好不好看，要在正经排版里才判断得准 */
+.preview-body {
+  padding: 14px 0 2px;
+  font: 400 14.5px/1.8 Georgia, 'Times New Roman', 'Songti SC', serif;
+}
+.preview-body p + p { margin-top: 12px; }
+.preview-foot {
+  padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--line);
+  font-size: 11.5px; line-height: 1.7; color: var(--faint);
+}
