@@ -29,10 +29,12 @@ export function paint(tokens: Token[]) {
   const ranges: Range[] = [];
 
   for (const token of tokens) {
+    const node = token.node;
+    if (!node || !node.isConnected) continue;
     const range = new Range();
     try {
-      range.setStart(token.node, token.start);
-      range.setEnd(token.node, token.end);
+      range.setStart(node, token.start);
+      range.setEnd(node, token.end);
     } catch {
       continue; // 节点在扫描后被页面改掉了，跳过
     }

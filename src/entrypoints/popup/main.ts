@@ -1,6 +1,6 @@
 import { browser } from '#imports';
 import { paintRange } from '@/lib/controls';
-import { apiKeysStore } from '@/lib/keys';
+import { hasApiKey } from '@/lib/keys';
 import { mountContactLinks } from '@/lib/links';
 import { knownWordsStore, readSettings, settingsStore } from '@/lib/settings';
 import { isConfigured, normalizeHost, siteDisabled } from '@/lib/types';
@@ -109,11 +109,14 @@ async function init() {
   targetExam.value = settings.targetExam;
   paintLevel();
 
-  const [known, keys] = await Promise.all([knownWordsStore.getValue(), apiKeysStore.getValue()]);
+  const [known, hasKey] = await Promise.all([
+    knownWordsStore.getValue(),
+    hasApiKey(settings.provider),
+  ]);
   $('knownCount').textContent = String(known.length);
   // 和后台、设置页共用同一个判定——只看 Key 存没存过的话，会把「配了 Key 但没填
   // 模型名」显示成已启用，而真去点释义时后台会拒
-  const configured = isConfigured(settings, !!keys[settings.provider]);
+  const configured = isConfigured(settings, hasKey);
 
   const ai = $('aiState');
   const on = settings.aiEnabled && configured;

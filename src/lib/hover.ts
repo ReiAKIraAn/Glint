@@ -63,9 +63,11 @@ export class HoverTracker {
   setTokens(tokens: Token[]) {
     this.index = new WeakMap<Text, Token[]>();
     for (const token of tokens) {
-      const list = this.index.get(token.node);
+      const node = token.node;
+      if (!node || !node.isConnected) continue;
+      const list = this.index.get(node);
       if (list) list.push(token);
-      else this.index.set(token.node, [token]);
+      else this.index.set(node, [token]);
     }
   }
 
@@ -229,10 +231,12 @@ export class HoverTracker {
 }
 
 function rectOf(token: Token): DOMRect | undefined {
+  const node = token.node;
+  if (!node || !node.isConnected) return undefined;
   try {
     const range = new Range();
-    range.setStart(token.node, token.start);
-    range.setEnd(token.node, token.end);
+    range.setStart(node, token.start);
+    range.setEnd(node, token.end);
     const rect = range.getBoundingClientRect();
     return rect.width > 0 || rect.height > 0 ? rect : undefined;
   } catch {

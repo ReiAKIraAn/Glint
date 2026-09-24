@@ -92,13 +92,13 @@ test('增量扫描：节点从 DOM 移除后 isConnected 为 false，旧 Token �
 
   const tokens = scan(container, DEFAULT_SETTINGS, new Set(), true);
   assert.equal(tokens.length, 1);
-  assert.equal(tokens[0]?.node.isConnected, true);
+  assert.equal(tokens[0]?.node?.isConnected, true);
 
   // 移除节点
   p.remove();
-  assert.equal(tokens[0]?.node.isConnected, false);
+  assert.equal(tokens[0]?.node?.isConnected, false);
 
   // 过滤已断开连接的节点耗时近乎 0
-  const activeTokens = tokens.filter((t) => t.node.isConnected);
+  const activeTokens = tokens.filter((t) => t.node?.isConnected);
   assert.equal(activeTokens.length, 0);
 });

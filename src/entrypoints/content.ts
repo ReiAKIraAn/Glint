@@ -260,6 +260,10 @@ export default defineContentScript({
             if (isCodeNode(node)) codeChanged = true;
             addedNodes.add(node);
           }
+          for (let i = 0; i < r.removedNodes.length; i++) {
+            const node = r.removedNodes[i]!;
+            if (isCodeNode(node)) codeChanged = true;
+          }
         }
       }
 
@@ -269,7 +273,10 @@ export default defineContentScript({
 
       // 1. 剪除已脱离 DOM 树的旧 Token，以及文本已发生变动的 Text 节点中的旧 Token
       const prevLength = tokens.length;
-      tokens = tokens.filter((t) => t.node.isConnected && !dirtyTextNodes.has(t.node));
+      tokens = tokens.filter((t) => {
+        const node = t.node;
+        return !!node && node.isConnected && !dirtyTextNodes.has(node);
+      });
 
       if (settings.oncePerPage) refreshSeen();
 

@@ -67,8 +67,16 @@ export default defineConfig({
           description: '跳到上一个标注的词',
         },
       },
-      host_permissions: [...providerOrigins, ...LOCAL_ORIGINS],
-      optional_host_permissions: ['https://*/*'],
+      /**
+       * Safari-First 最小权限原则 (Least-Privilege)：
+       * 在 Safari 中不预置任何 required host_permissions，避免安装时弹出 10+ 商业 AI 域名警示。
+       * 所有外部云端 API、本地 Ollama 域名以及自定义接口均作为 optional_host_permissions，
+       * 仅在用户实际配置该 Provider 时，通过用户手势动态单域授权。
+       */
+      host_permissions: isSafari ? [] : [...providerOrigins, ...LOCAL_ORIGINS],
+      optional_host_permissions: isSafari
+        ? [...providerOrigins, ...LOCAL_ORIGINS, 'https://*/*']
+        : ['https://*/*'],
       ...(isSafari ? {} : { minimum_chrome_version: '128' }),
     };
   },

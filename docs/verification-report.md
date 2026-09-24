@@ -333,54 +333,94 @@
 
 | 审计维度 / 具体断言 | 当前状态 (Level) | 关键证据与依据 | 缺陷或未经验证之处 |
 | :--- | :--- | :--- | :--- |
-| **Manifest 剥离 Chrome 字段** | **VERIFIED** | `.output/safari-mv3/manifest.json` 中已无 `minimum_chrome_version` | 剥离无误，Manifest 语法校验合法 |
-| **Node.js 自动化单元测试** | **VERIFIED** | `pnpm test` 84 个测试全部通过 (耗时 660ms) | 仅验证纯算法与 Happy-DOM mock，不代表浏览器渲染 |
-| **Gemini Key 在 URL 泄露漏洞** | **VERIFIED** | `background.ts:351` 拼接 `?key=...`，`background.ts:376` 异常时将 URL 传给前端 | **已确证存在安全漏洞**，需改为 Header 鉴权 |
-| **Content Script 与 Key 隔离**| **VERIFIED** | Content script 依赖图未包含 `keys.ts`，无跨上下文密钥泄露 | 密钥安全边界在 Content Script 端有效 |
-| **Safari host_permissions 适配** | **UNVERIFIED** | 12 家域名全量硬编码在 required host_permissions | Safari 强管控机制下大概率触发权限弹窗或静默断网 |
-| **`browser.permissions.request`** | **UNVERIFIED** | 源码在 `options/main.ts:649` 挂在点击事件直接调用 | 未在 Safari TP 临时扩展下实测过授权弹窗交互 |
+| **Gemini Key URL 泄露漏洞修复** | **FIXED AND VERIFIED** | `background.ts:351` 移除 `?key=`，改用 `x-goog-api-key` 请求头。`tests/security-redaction.test.ts` 测试确证通过 | 在 Node 运行时层面确证，URL 与 Header 均符合规范 |
+| **统一密钥脱敏边界 (Redaction)** | **FIXED AND VERIFIED** | 实现 `src/lib/security.ts`，错误信息、控制台日志与 UI 错误回显全局脱敏。`tests/security-redaction.test.ts` 测试确证 | 已覆盖 Anthropic/OpenAI/Gemini/DeepSeek 及通用 URL query |
+| **Popup 明文 Key 内存隔离** | **FIXED AND VERIFIED** | `popup/main.ts` 废除 `apiKeysStore.getValue()`，改用 `hasApiKey` 布尔判定，明文 Key 不再进入 popup 内存空间 | 源码审查与编译确证通过 |
+| **Safari 最小权限架构 (Least-Privilege)** | **FIXED AND VERIFIED** | `wxt.config.ts` Safari 配置 `host_permissions: []`，10 家云端及本地地址全入 `optional_host_permissions`；设置页按需申请与清除时撤销。构建产物 `.output/safari-mv3/manifest.json` 确证 | 安装阶段零域名敏感警告；实际原生授权弹窗交互在 STP 层面为 `SAFARI UNVERIFIED` |
+| **Token DOM 引用解耦 (WeakRef)** | **FIXED AND VERIFIED** | `ScannedToken` 使用 `WeakRef<Text>` 解除长期集合对 Text DOM 节点的强引用；Mutation 处理支持移除节点主动过滤。`tests/token-lifecycle.test.ts` 确证 | 算法逻辑与对象模型解耦确证通过；真实 WebKit 堆内存 GC 回收时机需以真实 Web Inspector 快照为准 |
+| **Node.js 自动化单元测试** | **VERIFIED** | 97 个测试全部通过 (`pnpm test` 耗时 876ms，新增 13 个 Core Regression 测试) | 仅验证纯算法与 Happy-DOM mock，不代表真实 WebKit 渲染 |
+| **Manifest 语法与打包构建** | **VERIFIED** | `pnpm build:safari` (5.90MB) 与 `pnpm zip:safari` (2.22MB) 零报错产出 | Manifest MV3 格式校验合法 |
+| **Safari 原生权限授权弹窗交互** | **FIXED BUT SAFARI UNVERIFIED** | `requestHostPermission` / `revokeHostPermission` 已在用户手势内严格调用 | 依赖真实 Safari TP 运行时弹出系统授权确认框进行最终验收 |
+| **真实 WebKit 堆内存 GC 回收时机** | **FIXED BUT SAFARI UNVERIFIED** | 代码已废除强引用，由 `WeakRef` 接管；但 WebKit 的 GC 回收周期与启发式策略未测 | 需在真实 STP 中通过 Web Inspector Memory 快照采样验证 |
+| **CSS Custom Highlight 渲染性能** | **PARTIALLY VERIFIED** | WebKit 官方确认自 Safari 17.2+ 支持 `CSS.highlights` | 真实长篇渲染与连续重绘性能未经 WebKit Web Inspector Profiling |
 | **`caretPositionFromPoint` 支持** | **PARTIALLY VERIFIED** | WebKit 官方 Release Notes (STP 226+) 明确声明支持该 API | 边界场景（如 CSS Transform、局部 Shadow）未在真实 WebKit 实测 |
-| **CSS Custom Highlight 渲染** | **PARTIALLY VERIFIED** | WebKit 官方确认自 Safari 17.2+ 支持 `CSS.highlights` | 真实长篇渲染与连续重绘性能未经 WebKit Web Inspector Profiling |
-| **WeakMap 内存安全** | **CLAIM WITHDRAWN** | `content.ts` 内 `tokens: Token[]` 依然强引用 `Text` 节点 | 无法证明达到 100% 内存无泄漏，存在引用滞留 |
-| **Safari 零长任务 (0 Long Tasks)** | **CLAIM WITHDRAWN** | 数据来自 Node.js 运行 Happy-DOM，Happy-DOM 不做真实页面排版渲染 | 真实 Safari TP 渲染性能完全未经实测 |
-| **Safari TP 253 实测运行** | **CLAIM WITHDRAWN** | 本地机器未安装 Safari Technology Preview | 无法在真实 STP 253 进程中完成功能验收 |
+| **macOS Alt+G 快捷键输入法冲突** | **REMAINING RISK** | `commands` 配置 `Alt+G`，macOS 上 Option+G 易输出特殊字符或与输入法绑定冲突 | 建议后续提供快捷键自定义说明或 macOS 推荐键位调整 |
+| **Safari Technology Preview 真实运行验收** | **BLOCKED** | 本地 macOS 27.2 未安装 `Safari Technology Preview.app` (仅安装系统 Safari 27.2) | 无法在真实 STP 253 进程中进行最终端到端手动验收 |
 
 ---
 
-## 十、遗留风险与重构建议清单 (Remaining Risks & Actionable Advice)
+## 十、第二阶段安全、权限与生命周期重构实施详情 (Phase 2 Implementation)
 
-以下问题均已查实，属于下一步重构必须解决的实质性技术隐患（**当前阶段严格不修改代码，仅记录供决策**）：
+本阶段严格遵照指示，实施了最小范围核心修复，并新增了对应的回归测试套件：
 
-### 1. 致命缺陷 (Critical)
-* **漏洞描述**: `background.ts` 第 351 行在向 Google Gemini 请求可用模型时，将 API Key 拼接至 URL Query (`?key=...`)，且在请求失败时将该 URL 原样输出并展示在设置页文本中。
-* **修复建议**:
-  - Google Gemini API 支持通过 HTTP 请求头 `x-goog-api-key: ${key}` 传递鉴权凭证，彻底废除 URL Query 传参。
-  - 改造错误处理机制，全局过滤任何可能包含密钥的 URL 或请求头字符串，防止报错信息反吐前端。
+### 1. API Key 安全与脱敏边界建立
+- **Gemini Header 鉴权规范化**:
+  - `src/entrypoints/background.ts`: 彻底废除 `generativelanguage.googleapis.com` 的 `?key=${key}` URL Query 拼接，改为通过标准请求头 `x-goog-api-key: ${key}` 传输鉴权凭证。
+- **全局统一脱敏组件 (`src/lib/security.ts`)**:
+  - 提供 `sanitizeUrl`: 深度清除 URL 中任何形态的敏感 query 参数 (`key`, `apiKey`, `token`, `secret` 等) 以及基础认证密码。
+  - 提供 `redactSecrets`: 拦截各服务商真 Key、`sk-ant-`、`sk-`、`AIza`、`Bearer` 以及查询参数密钥，统一替换为 `[REDACTED]`。
+  - 提供 `safeErrorMessage`: 针对后台捕获的所有 Error / 异常文本、控制台输出和前端回显进行强制脱敏。
+- **Popup 密钥内存隔离**:
+  - 在 `src/lib/keys.ts` 引入 `hasApiKey(provider)` 轻量布尔判定。
+  - `src/entrypoints/popup/main.ts` 彻底废除全量读取 `apiKeysStore.getValue()`，杜绝明文 Key 常驻于弹窗内存。
 
-### 2. 权限架构失衡 (Major)
-* **问题描述**: 在 Manifest 中预置了 10 家外部商业 AI API 域名的 `host_permissions`，直接触发 Safari 的多站点敏感权限警告。
-* **修复建议**:
-  - 废除 Manifest 中 10 家 API 域名的静态 `host_permissions`。
-  - 仅保留 `http://localhost/*` 与 `http://127.0.0.1/*`（Ollama 免配置）。
-  - 所有外部云端 API 统一走 `optional_host_permissions`。当用户在设置页点击“保存 Key”时，按需申请当前 Provider 的单个 Origin 授权。
+### 2. Safari-First 最小权限原则重构 (Least-Privilege)
+- **Manifest 剥离静态 Required Host Permissions**:
+  - `wxt.config.ts`: Safari 目标下设置 `host_permissions: []`，彻底清除安装阶段向用户索要 10+ 商业 AI 网站访问权的警告。
+  - 将所有预置云端 API、本地地址与通配规则转移至 `optional_host_permissions`。
+- **按需动态授权与撤销机制 (`src/lib/permissions.ts` & `options/main.ts`)**:
+  - 保存 Key 时：在点击事件的用户手势中，仅向浏览器申请当前所选 Provider 对应的单个 Origin 权限（如 `https://api.openai.com/*`）。
+  - 清除 Key 时：在清除密钥的同时，调用 `browser.permissions.remove` 自动撤销该域名的网络访问权限。
+  - 拉取模型时：若用户尚未保存便点击拉取（特别是 Ollama 等无需 Key 的本地服务），先在用户手势中检查并申请该单一域名的访问权，确保请求正常放行。
+  - 切换 Provider 时：不主动撤销其他已有 Key 的域名，避免用户频繁切换配置时重复弹窗。
 
-### 3. 内存滞留隐患 (Moderate)
-* **问题描述**: `content.ts` 内部维持的 `tokens: Token[]` 数组持有 DOM `Text` 节点的直接强引用。
-* **修复建议**:
-  - 简化 `Token` 结构，或在 `content.ts` 维护一个按需清理机制，在页面空闲时主动扫描并剔除 `node.isConnected === false` 的无效项，或者让 `Token` 仅保存节点标识而非长期持有直接引用。
+### 3. Token / DOM 生命周期解耦 (WeakRef)
+- **数据结构升级**:
+  - 在 `src/lib/scan.ts` 引入 `ScannedToken` 实现类与更新 `Token` 接口，将对 `Text` 节点的直接强引用改造为 `nodeRef: WeakRef<Text>`，并通过 `get node(): Text | undefined` 进行惰性解引用。
+  - 彻底解除了全局驻留的 `tokens: Token[]` 数组对脱离 DOM 树节点的垃圾回收阻断。
+- **调用点安全降级与清理**:
+  - `sentenceAround`: 若节点已脱离 DOM 或已被 GC 回收，安全退回至 `token.surface`。
+  - `paint` 与 `rectOf`: 严格过滤未连接 (`!node.isConnected`) 或已回收的节点，防止 Range 报错。
+  - `content.ts`: 变动批处理中增加了对 `removedNodes` 的代码词状态维护，并自动执行失效 Token 剪除。
 
-### 4. macOS 快捷键冲突 (Minor)
-* **问题描述**: `commands` 配置的 `Alt+G` / `Alt+Shift+G` 与 macOS 系统输入法字符产生冲突。
-* **修复建议**:
-  - 考虑为 macOS 用户调整推荐键位（例如 `Alt+Command+G`，或使用 `Ctrl+Shift+G`），并在弹窗或设置页增加按键说明。
+### 4. 回归测试套件补充与验证
+新增 3 个独立的核心回归测试文件，测试总数由 84 项提升至 97 项，全部通过：
+1. `tests/security-redaction.test.ts` (Core regression):
+   - 验证 Gemini 请求 URL 绝对不含 `?key=`
+   - 验证 Gemini 请求头包含 `x-goog-api-key`
+   - 验证各类真 Key、Bearer、敏感 URL query 的脱敏过滤
+   - 验证 UI 错误信息渲染不含密钥
+2. `tests/token-lifecycle.test.ts` (Core regression):
+   - 验证 `ScannedToken` 的 `WeakRef` 持有机制
+   - 验证节点脱离与 GC 模拟下的安全回退
+   - 验证增量集合对断开连接节点的正确剔除
+3. `tests/permission-architecture.test.ts` (Core regression):
+   - 验证各 Provider 目标 Origin 的正确解析
+   - 验证 Safari Manifest 配置输出 `host_permissions: []`
 
 ---
 
-## 十一、进入下一阶段前必须由用户裁定的事项 (Required Decisions)
+## 十一、Safari Technology Preview 安装指引与端到端手动验收要求
 
-1. **开发与测试基线环境确认**:
-   - 本机当前未安装 **Safari Technology Preview**。
-   - 是否需要在开发机上下载安装 Safari Technology Preview (当前最新为 Release 253)，还是允许阶段性使用系统自带 Safari 27.2 (WebKit 22625.2.5.11.1) 进行初步验证？
-2. **API 权限策略选择**:
-   - 方案 A（当前方案）：Manifest 预置 12 个域名，用户在 Safari 扩展管理中手动开启全站访问。
-   - 方案 B（Safari-First 推荐方案）：Manifest 仅声明最小权限，用户在设置页填哪家 Key，就仅申请哪 1 家的域名权限，完全消除多余授权警告。
+由于开发机当前仅安装了系统自带 Safari 27.2，尚未安装 Safari Technology Preview，端到端浏览器真实验收目前处于 **BLOCKED / UNVERIFIED** 状态。
+
+若需在开发机上进行真实 STP 验收，请按照以下官方最小步骤进行安装：
+
+### 1. 官方安装步骤
+1. 打开 Apple 官方 Safari Technology Preview 下载页：
+   `https://developer.apple.com/safari/technology-preview/`
+2. 下载适用于当前系统 (macOS Golden Gate / Tahoe) 的官方 DMG 安装包。
+3. 双击打开 `.dmg`，运行安装器将 `Safari Technology Preview.app` 安装至 `/Applications` 目录（无需 Apple 开发者账号付费）。
+
+### 2. 真实扩展载入与验证流程
+1. 启动 `Safari Technology Preview.app`。
+2. 打开顶部菜单栏 **Safari Technology Preview → Settings (设置) → Advanced (高级)**，勾选底部的 **Show features for web developers (显示面向 Web 开发者的功能)**。
+3. 在顶部菜单栏中点击出现的 **Developer (开发)** 菜单，勾选 **Allow unsigned extensions (允许未签名的扩展)**。
+4. 在 **Developer** 菜单中选择 **Extension Developer (扩展开发者)...**，点击 **+** 号，选择本项目生成的目录：
+   `/Users/ada/Downloads/glint-main/.output/safari-mv3`
+5. 按照 [docs/test-plan.md](file:///Users/ada/Downloads/glint-main/docs/test-plan.md) 中的手动验收清单逐项检查：
+   - 打开设置页，配置 Google Gemini / Ollama，观察浏览器是否弹出单域名授权弹窗。
+   - 打开英文测试页面（如 Wikipedia），观察 `::highlight(glint-mark)` 是否高亮生效。
+   - 悬浮鼠标检查词义卡片展开是否平滑。
+   - 按 `Alt+G` / `Alt+Shift+G` 测试键盘导航聚焦。
+

@@ -33,25 +33,47 @@
   - 制定自动化单元测试、Mutation 压力测试及 Safari TP 手工验收 Checklist。
   - 输出 `docs/performance-baseline.md` 与 `docs/test-plan.md`。
 
-### Phase 2: Safari-First 引擎实现、优化与交付 (Implementation & Delivery) - 2026-09-24
-- **增量扫描引擎落地**:
-  - `src/lib/scan.ts` 重构：实现 `scanTextNode`、`scanSubtree`、导出 `collectCodeWords`。
-  - `src/entrypoints/content.ts` 重构：引入 40ms 变动批处理队列，基于 `node.isConnected` 实时剪除无效 Token，仅扫描发生实际改变的 Text 节点与新增子树，消除全页全量重扫。
-- **内存安全 WeakMap 升级**:
-  - `src/lib/hover.ts`: `HoverTracker` 索引全面迁移为 `WeakMap<Text, Token[]>`，Text 节点随页面框架自动销毁，零内存泄露。
-- **WebKit 标准对齐**:
-  - 统一光标坐标反查至标准 `document.caretPositionFromPoint`。
+### Phase 2: Safari-First 增量扫描初版与基线构建 (Initial Incremental Scanner & Baseline) - 2026-09-24
+- **增量扫描引擎初版**:
+  - `src/lib/scan.ts`: 实现 `scanTextNode`、`scanSubtree`、导出 `collectCodeWords`。
+  - `src/entrypoints/content.ts`: 引入 40ms 变动批处理队列，基于 `node.isConnected` 过滤无效 Token，仅扫描实际改变的 Text 节点与新增子树。
+- **HoverTracker 映射升级**:
+  - `src/lib/hover.ts`: `HoverTracker` 索引使用 `WeakMap<Text, Token[]>`。
 - **Safari 构建与清单体系**:
-  - `wxt.config.ts`: 引入环境感知函数，构建 Safari 时自动剥离 Chrome 专属的 `minimum_chrome_version`。
+  - `wxt.config.ts`: 引入环境感知函数，Safari 构建剥离 `minimum_chrome_version`。
   - `package.json`: 增加 `pnpm build:safari` 与 `pnpm zip:safari` 构建指令。
-- **测试与压测全量通过**:
+- **Node.js 单元测试**:
   - 编写 `tests/incremental-scan.test.ts`、`tests/weakmap-hover.test.ts`、`tests/mutation-stress.test.ts`。
-  - 84 个测试用例全部通过，高频动态增删与打字流式更新平均单次耗时 < 0.06ms，0 Long Tasks。
-- **交付终期报告**:
-  - 输出 `docs/final-report.md`，提供完整改动对比、性能基准数据、STP 加载指引与版本更新重新验证 SOP。
+  - *(纠偏注：所有 84 项测试均为 Node.js + Happy-DOM mock 环境，此前关于 0 Long Task、100% GC 及真实 Safari 性能的断言已正式撤回并标记为 UNVERIFIED)*。
+
+### Phase 3: 深度安全修复、Safari 最小权限架构与 WeakRef DOM 引用解耦 (Security, Least-Privilege & WeakRef Decoupling) - 2026-09-24
+- **Gemini API Key 泄露漏洞彻底修复**:
+  - `src/entrypoints/background.ts`: 废除 `generativelanguage.googleapis.com` 的 `?key=${key}` URL Query 传参，全面改用官方标准请求头 `x-goog-api-key: ${key}`。
+- **统一敏感信息脱敏边界 (Secret Redaction Boundary)**:
+  - 新增 `src/lib/security.ts`：提供 `sanitizeUrl`、`redactSecrets`、`safeErrorMessage` 工具函数。
+  - 全局过滤网络请求 URL、异常抛出、控制台日志与前端 UI 报错回显中的所有 API Key、Bearer Token 与敏感 Query 参数。
+- **Popup 密钥内存隔离**:
+  - `src/lib/keys.ts`: 导出 `hasApiKey` 轻量状态查询函数。
+  - `src/entrypoints/popup/main.ts`: 彻底废除全量读取 `apiKeysStore.getValue()`，明文密钥不再进入 popup 进程内存空间。
+- **Safari 最小权限架构落地 (Least-Privilege)**:
+  - `wxt.config.ts`: Safari 目标下声明 `host_permissions: []`，彻底清除安装阶段向用户索要 10+ 商业 AI 网站访问权的警告。
+  - 将所有外部云端 API（OpenAI, Anthropic, Gemini, DeepSeek 等）以及本地地址转移至 `optional_host_permissions`。
+  - 新增 `src/lib/permissions.ts`：提供 `originForProvider`、`hasHostPermission`、`requestHostPermission`、`revokeHostPermission`。
+  - `src/entrypoints/options/main.ts`: 在保存 Key / 拉取模型的用户手势中按需申请当前 Provider 单一域名授权；清除 Key 时同步调用 `browser.permissions.remove` 自动撤销权限。
+- **Token / DOM 生命周期弱引用解耦**:
+  - `src/lib/scan.ts`: 引入 `ScannedToken` 实现类与更新 `Token` 接口，使用 `nodeRef: WeakRef<Text>` 解除长期驻留集合对脱离 DOM 树 Text 节点的强引用保持。
+  - `src/lib/highlight.ts`、`src/lib/hover.ts`、`src/lib/keynav.ts`、`src/entrypoints/content.ts`: 增加对 `!node || !node.isConnected` 的防护与安全退回；并在变动批处理中维护 `removedNodes` 状态。
+- **Core Regression 测试套件补充**:
+  - 新增 `tests/security-redaction.test.ts`、`tests/token-lifecycle.test.ts`、`tests/permission-architecture.test.ts`。
+  - 测试用例总数提升至 97 项，Node.js 运行全量通过 (耗时 876ms)。
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错。
+  - Safari MV3 打包产物 `.output/safari-mv3` 与 zip 包验证完整。
+- **真实浏览器验收状态**:
+  - 确证开发机未安装 `Safari Technology Preview.app`，真实端到端手工验收标记为 `BLOCKED / UNVERIFIED`，提供官方安装与载入指引。
 
 ---
 
 ## [1.1.1] - Glint Upstream 基线版本
 - 基于 Chrome MV3 与 WXT 框架的原版开源发布版。
 - 基础功能：分级难词标注、备考词表、悬浮卡片、ECDICT 本地音标释义、AI 语境释义、Anki 导出、JSON 备份。
+

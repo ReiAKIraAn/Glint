@@ -29,6 +29,13 @@ import {
   type Backup,
 } from '@/lib/settings';
 import { apiKeysStore } from '@/lib/keys';
+import { safeErrorMessage } from '@/lib/security';
+import {
+  hasHostPermission,
+  originForProvider,
+  requestHostPermission,
+  revokeHostPermission,
+} from '@/lib/permissions';
 import { mountContactLinks } from '@/lib/links';
 import { escapeHtml as escape, boldWord } from '@/lib/text';
 import { toAnkiTSV, type AnkiRow } from '@/lib/anki';
@@ -512,11 +519,15 @@ $('saveKey').addEventListener('click', async () => {
    * 请求却被浏览器拦在门外，而卡片上只写「连不上」，谁也查不出为什么。
    */
   const baseURL = fields.baseURL.value.trim();
+  const origin = originForProvider(settings, provider);
   if (spec.kind === 'compatible') {
     if (!baseURL) return setKeyStatus('先填接口地址', 'bad');
     const granted = await grantHost(baseURL);
     if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
     await patch({ baseURLs: overrideBaseURL(baseURL) });
+  } else if (origin) {
+    const granted = await grantOrigin(origin);
+    if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
   }
 
   if (key) {
@@ -531,12 +542,20 @@ $('saveKey').addEventListener('click', async () => {
 });
 
 $('clearKey').addEventListener('click', async () => {
+  const currentProvider = settings.provider;
   const keys = { ...(await apiKeysStore.getValue()) };
-  delete keys[settings.provider];
+  delete keys[currentProvider];
   await apiKeysStore.setValue(keys);
-  savedKeys = { ...savedKeys, [settings.provider]: false };
+  savedKeys = { ...savedKeys, [currentProvider]: false };
   fields.apiKey.value = '';
   hasKey = false;
+
+  // 最小权限：清除 Key 时撤销该 Provider 的单独域名授权
+  const origin = originForProvider(settings, currentProvider);
+  if (origin) {
+    void revokeHostPermission(origin);
+  }
+
   paintProvider();
   setKeyStatus('已清除');
   redraw();
@@ -554,38 +573,24 @@ async function loadModels(quiet = false) {
   delete note.dataset.tone;
   fields.modelPick.hidden = true;
 
-  /**
-   * sendMessage 是会 reject 的，而且不止一种理由：service worker 在等回复的中途
-   * 被回收、消息通道断掉、或者这个 Chrome 版本不认「监听器返回 Promise」
-   * （那样拿到的是 undefined，下一行读 .ok 就抛）。
-   *
-   * 漏过去的话这个函数就在 await 上死掉，note 永远停在「正在拉取…」——
-   * 那正是一个「拉不出来又没有任何报错」的故障，谁也查不下去。
-   */
   let result: ModelList;
   try {
     result = (await browser.runtime.sendMessage({ kind: 'ai:models' })) as ModelList;
     if (!result || typeof result.ok !== 'boolean') throw new Error('后台没有返回结果');
   } catch (error) {
-    note.textContent = `拉取失败：${error instanceof Error ? error.message : String(error)}`;
+    note.textContent = `拉取失败：${safeErrorMessage(error)}`;
     note.dataset.tone = 'bad';
     return;
   }
 
   if (!result.ok) {
     // 保存 Key 之后的自动拉取失败不该像个错误——用户没主动要，手打模型名也能用
-    note.textContent = quiet ? `没拉到模型列表（${result.error}），手填也行` : result.error;
+    const safeErr = safeErrorMessage(result.error);
+    note.textContent = quiet ? `没拉到模型列表（${safeErr}），手填也行` : safeErr;
     if (!quiet) note.dataset.tone = 'bad';
     return;
   }
 
-  /**
-   * 两个入口，因为它们干的不是一件事。
-   *
-   * datalist 是打字时的补全，它会拿输入框里已有的文字过滤候选——所以拉到 12 个、
-   * 下拉里只冒出 2 个是它的正常行为，不是丢了。但那副样子会让人以为没拉全，
-   * 所以另给一个规规矩矩的 select，一个不少地列出来。
-   */
   fields.modelList.innerHTML = result.models
     .map((model) => `<option value="${escape(model)}"></option>`)
     .join('');
@@ -611,7 +616,22 @@ fields.modelPick.addEventListener('change', () => {
   void patch({ models: { ...settings.models, [settings.provider]: model } });
 });
 
-$('fetchModels').addEventListener('click', () => void loadModels());
+$('fetchModels').addEventListener('click', async () => {
+  const origin = originForProvider(settings, settings.provider);
+  if (origin) {
+    const has = await hasHostPermission(origin);
+    if (!has) {
+      const granted = await requestHostPermission(origin);
+      if (!granted.ok) {
+        const note = $('modelNote');
+        note.textContent = granted.error ?? '未授予网络访问权限';
+        note.dataset.tone = 'bad';
+        return;
+      }
+    }
+  }
+  void loadModels();
+});
 
 /**
  * 自定义接口的域名事先不知道，所以只能作为可选权限在保存时现要。
@@ -619,6 +639,15 @@ $('fetchModels').addEventListener('click', () => void loadModels());
  */
 /** 本机的几种写法。这些走 http 没问题——请求根本不出这台机器。 */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+async function grantOrigin(origin: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const ok = await browser.permissions.request({ origins: [origin] });
+    return ok ? { ok: true } : { ok: false, error: `浏览器没给 ${origin} 的访问权限` };
+  } catch (error) {
+    return { ok: false, error: safeErrorMessage(error) };
+  }
+}
 
 async function grantHost(baseURL: string): Promise<{ ok: boolean; error?: string }> {
   let url: URL;
@@ -628,30 +657,12 @@ async function grantHost(baseURL: string): Promise<{ ok: boolean; error?: string
     return { ok: false, error: '接口地址不是合法 URL' };
   }
 
-  /**
-   * 非本机的明文 http 直接拒。
-   *
-   * 那条路上要带着 API Key 出门，同一个局域网里任何人都能读到。
-   * 而且 manifest 的可选权限里只声明了 https，真去 request 也只会拿到一个
-   * 「申请权限失败」——那看起来像扩展坏了。不如在这里说清楚是为什么。
-   */
   if (url.protocol !== 'https:' && !LOCAL_HOSTS.has(url.hostname)) {
     return { ok: false, error: '非本机地址请用 https——http 会把 API Key 明文发出去' };
   }
 
   const origin = `${url.origin}/*`;
-  try {
-    /**
-     * 不先 contains 再 request——那一次 await 就足以让 Chrome 不认这是用户手势。
-     * 已经授过的域再 request 一次会直接返回 true，不会重复弹框，所以直接问就行。
-     * manifest 里写死的那十个域同理，问了也是秒过。
-     */
-    const ok = await browser.permissions.request({ origins: [origin] });
-    return ok ? { ok: true } : { ok: false, error: `浏览器没给 ${origin} 的访问权限` };
-  } catch (error) {
-    // 别再把原因吞掉了，出问题的时候这句话就是唯一的线索
-    return { ok: false, error: error instanceof Error ? error.message : '申请权限失败' };
-  }
+  return grantOrigin(origin);
 }
 
 // ---------------------------------------------------------------- 我的词

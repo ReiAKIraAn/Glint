@@ -2,14 +2,51 @@ import { examFloor, resolve } from './lexicon';
 import { UNKNOWN_LEVEL, type Level, type Settings } from './types';
 
 export interface Token {
-  node: Text;
+  /** 弱引用持有的 Text 节点引用，允许脱离文档树的节点被 GC 正常回收 */
+  readonly nodeRef?: WeakRef<Text>;
+  /** 便捷访问器：返回活跃的 Text 节点，若节点已被 GC 回收则返回 undefined */
+  readonly node: Text | undefined;
   /** 在 node.data 里的字符区间 */
-  start: number;
-  end: number;
+  readonly start: number;
+  readonly end: number;
   /** 页面上的原始写法 */
-  surface: string;
-  lemma: string;
-  level: Level | typeof UNKNOWN_LEVEL;
+  readonly surface: string;
+  readonly lemma: string;
+  readonly level: Level | typeof UNKNOWN_LEVEL;
+}
+
+/**
+ * 弱引用 Token 实现类：
+ * 解除长期驻留的 tokens 集合对 DOM Text 节点的强引用，
+ * 使得 DOM 节点脱离树后能够被浏览器垃圾回收器（GC）自然回收。
+ */
+export class ScannedToken implements Token {
+  readonly nodeRef: WeakRef<Text>;
+  readonly start: number;
+  readonly end: number;
+  readonly surface: string;
+  readonly lemma: string;
+  readonly level: Level | typeof UNKNOWN_LEVEL;
+
+  constructor(
+    node: Text,
+    start: number,
+    end: number,
+    surface: string,
+    lemma: string,
+    level: Level | typeof UNKNOWN_LEVEL,
+  ) {
+    this.nodeRef = new WeakRef(node);
+    this.start = start;
+    this.end = end;
+    this.surface = surface;
+    this.lemma = lemma;
+    this.level = level;
+  }
+
+  get node(): Text | undefined {
+    return this.nodeRef.deref();
+  }
 }
 
 /**
@@ -131,14 +168,16 @@ export function scanTextNode(
     if (settings.oncePerPage && seen?.has(lemma)) continue;
     seen?.add(lemma);
 
-    tokens.push({
-      node: text,
-      start: match.index,
-      end: match.index + surface.length,
-      surface,
-      lemma,
-      level,
-    });
+    tokens.push(
+      new ScannedToken(
+        text,
+        match.index,
+        match.index + surface.length,
+        surface,
+        lemma,
+        level,
+      ),
+    );
   }
 
   return tokens;
@@ -238,10 +277,12 @@ function atSentenceStart(data: string, index: number): boolean {
  * 退一步用最近的块级祖先的文本。
  */
 export function sentenceAround(token: Token): string {
-  const local = sliceSentence(token.node.data, token.start, token.end);
+  const node = token.node;
+  if (!node) return token.surface;
+  const local = sliceSentence(node.data, token.start, token.end);
   if (local.length >= 24) return local;
 
-  const block = token.node.parentElement?.closest('p, li, td, th, dd, dt, blockquote, h1, h2, h3, h4, h5, h6, div');
+  const block = node.parentElement?.closest('p, li, td, th, dd, dt, blockquote, h1, h2, h3, h4, h5, h6, div');
   const text = block?.textContent?.replace(/\s+/g, ' ').trim();
   if (!text) return local;
 

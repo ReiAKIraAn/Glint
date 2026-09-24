@@ -58,10 +58,12 @@ export function createWordNav(deps: {
 const MARGIN = 120;
 
 function centerOn(token: Token) {
+  const node = token.node;
+  if (!node || !node.isConnected) return;
   const range = new Range();
   try {
-    range.setStart(token.node, token.start);
-    range.setEnd(token.node, token.end);
+    range.setStart(node, token.start);
+    range.setEnd(node, token.end);
   } catch {
     return;
   }

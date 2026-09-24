@@ -46,7 +46,7 @@ test('压力测试 1：模拟 React / Vue 高频动态增删 500 个复杂元素
   }
 
   // 剪除脱离 DOM 的旧 Token
-  tokens = tokens.filter((t) => t.node.isConnected);
+  tokens = tokens.filter((t) => t.node?.isConnected);
 
   const duration = performance.now() - start;
   const avgPerBatch = duration / 500;

@@ -5,6 +5,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { APICallError, generateText, type LanguageModel } from 'ai';
 import { browser, defineBackground } from '#imports';
 import { apiKeysStore, migrateLegacyKey } from '@/lib/keys';
+import { redactSecrets, safeErrorMessage, sanitizeUrl } from '@/lib/security';
 import { capExplanations, explanationsStore, readSettings } from '@/lib/settings';
 import {
   PROVIDERS,
@@ -96,8 +97,9 @@ async function guard<T>(run: () => Promise<T>, fallback: T | ((why: string) => T
   try {
     return await run();
   } catch (error) {
-    console.error('[glint] 后台处理消息时抛了：', error);
-    const why = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    const safeError = safeErrorMessage(error);
+    console.error('[glint] 后台处理消息时抛了：', safeError);
+    const why = error instanceof Error ? `${error.name}: ${safeError}` : safeError;
     return typeof fallback === 'function' ? (fallback as (why: string) => T)(why) : fallback;
   }
 }
@@ -224,7 +226,7 @@ async function analyze(word: string, lemma: string, sentence: string): Promise<R
     await remember(lemma, { sentence, surface: word, analysis, time: Date.now() });
     return { ok: true, analysis };
   } catch (error) {
-    return { ok: false, error: describe(error, settings.provider) };
+    return { ok: false, error: safeErrorMessage(describe(error, settings.provider), [configured.key]) };
   }
 }
 
@@ -348,7 +350,7 @@ async function models(): Promise<ModelList> {
     spec.kind === 'anthropic'
       ? 'https://api.anthropic.com/v1/models?limit=1000'
       : spec.kind === 'google'
-        ? `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`
+        ? 'https://generativelanguage.googleapis.com/v1beta/models'
         : spec.kind === 'openai'
           ? 'https://api.openai.com/v1/models'
           : `${baseURLOf(settings).replace(/\/$/, '')}/models`;
@@ -361,7 +363,9 @@ async function models(): Promise<ModelList> {
           'anthropic-dangerous-direct-browser-access': 'true',
         }
       : spec.kind === 'google'
-        ? {}
+        ? {
+            'x-goog-api-key': key,
+          }
         : { Authorization: `Bearer ${key}` };
 
   if (!(await allowed(url))) {
@@ -371,9 +375,10 @@ async function models(): Promise<ModelList> {
   try {
     const response = await fetch(url, { headers, signal: AbortSignal.timeout(MODELS_TIMEOUT) });
     if (!response.ok) {
-      // 带上地址和接口自己说的话——不然「拉取失败（404）」等于什么都没说
+      // 带上主机和接口自身说明，但彻底过滤任何可能反吐的 Key 或凭证
       const detail = (await response.text().catch(() => '')).slice(0, 120);
-      return { ok: false, error: `${url} 返回 ${response.status}${detail ? `：${detail}` : ''}` };
+      const safeDetail = redactSecrets(detail, [key]);
+      return { ok: false, error: `${host(url)} 接口返回 ${response.status}${safeDetail ? `：${safeDetail}` : ''}` };
     }
     const body = (await response.json()) as {
       data?: { id?: string }[];
@@ -392,8 +397,8 @@ async function models(): Promise<ModelList> {
     if (timedOut(error)) {
       return { ok: false, error: `${host(url)} ${MODELS_TIMEOUT / 1000} 秒没有响应，请求发出去了但没回来` };
     }
-    const why = error instanceof Error ? error.message : String(error);
-    return { ok: false, error: `连不上 ${url}（${why}）` };
+    const why = safeErrorMessage(error, [key]);
+    return { ok: false, error: `连不上 ${host(url)}（${why}）` };
   }
 }
 
@@ -459,6 +464,6 @@ function describe(error: unknown, provider: Provider): string {
   }
   if (timedOut(error)) return `${name} ${ANALYZE_TIMEOUT / 1000} 秒没有响应，请求发出去了但没回来`;
   if (error instanceof SyntaxError) return '模型返回的不是合法 JSON';
-  if (error instanceof TypeError) return `连不上 ${name}：${error.message}`;
-  return error instanceof Error ? error.message : '未知错误';
+  if (error instanceof TypeError) return `连不上 ${name}：${safeErrorMessage(error.message)}`;
+  return error instanceof Error ? safeErrorMessage(error.message) : '未知错误';
 }

@@ -28,3 +28,13 @@ export async function migrateLegacyKey() {
   if (!keys.anthropic) await apiKeysStore.setValue({ ...keys, anthropic: legacy });
   await legacyKeyStore.removeValue();
 }
+
+/**
+ * 仅判定某个服务商是否配置过 Key，不把明文字符串返回给调用方。
+ * 用于 popup 状态展示等无需持有真密钥的轻量场景。
+ */
+export async function hasApiKey(provider: Provider): Promise<boolean> {
+  const keys = await apiKeysStore.getValue();
+  return Boolean(keys[provider]);
+}
+
