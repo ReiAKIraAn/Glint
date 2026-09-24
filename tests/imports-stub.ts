@@ -38,6 +38,7 @@ export const browser = {
   runtime: {
     sendMessage: async () => undefined,
     getURL: (p: string) => p,
+    onMessage: { addListener: () => {}, removeListener: () => {} },
     connect: (options?: { name?: string }) => ({
       name: options?.name ?? '',
       postMessage: () => {},
