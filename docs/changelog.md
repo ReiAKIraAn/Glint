@@ -33,6 +33,23 @@
   - 制定自动化单元测试、Mutation 压力测试及 Safari TP 手工验收 Checklist。
   - 输出 `docs/performance-baseline.md` 与 `docs/test-plan.md`。
 
+### Phase 2: Safari-First 引擎实现、优化与交付 (Implementation & Delivery) - 2026-09-24
+- **增量扫描引擎落地**:
+  - `src/lib/scan.ts` 重构：实现 `scanTextNode`、`scanSubtree`、导出 `collectCodeWords`。
+  - `src/entrypoints/content.ts` 重构：引入 40ms 变动批处理队列，基于 `node.isConnected` 实时剪除无效 Token，仅扫描发生实际改变的 Text 节点与新增子树，消除全页全量重扫。
+- **内存安全 WeakMap 升级**:
+  - `src/lib/hover.ts`: `HoverTracker` 索引全面迁移为 `WeakMap<Text, Token[]>`，Text 节点随页面框架自动销毁，零内存泄露。
+- **WebKit 标准对齐**:
+  - 统一光标坐标反查至标准 `document.caretPositionFromPoint`。
+- **Safari 构建与清单体系**:
+  - `wxt.config.ts`: 引入环境感知函数，构建 Safari 时自动剥离 Chrome 专属的 `minimum_chrome_version`。
+  - `package.json`: 增加 `pnpm build:safari` 与 `pnpm zip:safari` 构建指令。
+- **测试与压测全量通过**:
+  - 编写 `tests/incremental-scan.test.ts`、`tests/weakmap-hover.test.ts`、`tests/mutation-stress.test.ts`。
+  - 84 个测试用例全部通过，高频动态增删与打字流式更新平均单次耗时 < 0.06ms，0 Long Tasks。
+- **交付终期报告**:
+  - 输出 `docs/final-report.md`，提供完整改动对比、性能基准数据、STP 加载指引与版本更新重新验证 SOP。
+
 ---
 
 ## [1.1.1] - Glint Upstream 基线版本
