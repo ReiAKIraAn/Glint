@@ -21,11 +21,11 @@
 | 功能项 (Feature) | Original Chrome 行为 | Current Safari 行为 | 源码实现位置 | 自动化测试 | 实机 Safari 证据 | 最终状态 (Status) | 差异与处理理由 | 是否为 Closure 阻断项? |
 | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :---: |
 | **CEFR 分级扫描与分词** | A1~C2 难度过滤、词形还原、缩写过滤 | 相同算法，采用 WeakRef 解耦 Text 节点，内存安全 | `src/lib/scan.ts` | 50+ 项单元测试 | Wikipedia / 各种页面高亮正常 | **COMPLETE** | 算法一致，Safari 版增加了防内存泄漏弱引用 | **NO** |
-| **考纲静音与备考模式** | 中考~六级静音，备考交集过滤 | 相同算法与存储过滤 | `src/lib/scan.ts`, `src/lib/lexicon.ts` | 考纲过滤专项测试 | 设置页与前台联动正常 | **COMPLETE** | 100% 对等 | **NO** |
+| **考纲静音与备考模式** | 中考~六级静音，备考交集过滤 | 相同算法与存储过滤 | `src/lib/scan.ts`, `src/lib/lexicon.ts` | 考纲过滤专项测试 | 设置页与前台联动正常 | **COMPLETE** | 经自动化用例验证行为一致 | **NO** |
 | **CSS Custom Highlight 高亮** | `::highlight(glint-mark)` 着色 | 双轨容灾机制 (`adoptedStyleSheets` + `<style>` 兜底) | `src/lib/highlight.ts` | `highlight.test.ts` | 高亮着色正常无重绘抖动 | **COMPLETE** | 增强了 Safari 跨上下文容灾 | **NO** |
 | **光标生词命中反查** | 坐标拾取生词 Range | `caretPositionFromPoint` + `resolveTextCaret` 边界解析 | `src/lib/hover.ts` | `hover-card.test.ts` | 悬停命中精度一致 | **COMPLETE** | 增强了 WebKit 元素边界解析能力 | **NO** |
-| **悬浮卡片展示本地词典** | 220ms 悬停弹出 Shadow DOM 卡片 | 单例 DOM + 纯 `textContent` 安全渲染，零 innerHTML | `src/lib/card.ts` | `ai-card.test.ts` | 秒级展现，原生样式隔离 | **COMPLETE** | Safari 版彻底杜绝 innerHTML XSS 隐患 | **NO** |
-| **熟词标记与动态消词** | 点击“✓ 认识”全站消词并存盘 | 相同逻辑，Token 动态移除并局部重绘高亮 | `src/lib/card.ts`, `src/entrypoints/content.ts` | `token-lifecycle.test.ts` | 点击认识后当前与后续页面高亮消除 | **COMPLETE** | 100% 对等 | **NO** |
+| **悬浮卡片展示本地词典** | 220ms 悬停弹出 Shadow DOM 卡片 | 单例 DOM + 纯 `textContent` 安全渲染，零 innerHTML | `src/lib/card.ts` | `ai-card.test.ts` | 秒级展现，原生样式隔离 | **COMPLETE** | Safari 版彻底杜绝 innerHTML 注入隐患 | **NO** |
+| **熟词标记与动态消词** | 点击“✓ 认识”全站消词并存盘 | 相同逻辑，Token 动态移除并局部重绘高亮 | `src/lib/card.ts`, `src/entrypoints/content.ts` | `token-lifecycle.test.ts` | 点击认识后当前与后续页面高亮消除 | **COMPLETE** | 经自动化用例验证行为一致 | **NO** |
 | **原生离线发音 (TTS)** | 点击音标喇叭播放语音 | Web Speech API 原生朗读，严格筛选 `localService === true` | `src/lib/speak.ts`, `src/lib/card.ts` | TTS-01..10 (10 项) | 点击正常朗读，零网络请求 | **COMPLETE** | M5-W1 恢复，零权限零网络依赖 | **NO** |
 | **AI 语境释义流式打字机** | 非流式整段返回 JSON 释义 | SSE 增量推流 + rAF 帧合并 + textContent 安全渲染 | `src/lib/card.ts`, `src/lib/ai-port.ts` | E2E-01..14, M4 全量测试 | 点击后平滑打字机展现 | **COMPLETE** | Safari 版大幅升级为流式交互 | **NO** |
 | **AI 请求主动取消与隔离** | 无取消机制，后台跑完存盘 | UI 取消按钮 + Port `AI_ABORT` + reader 中止 | `src/lib/card.ts`, `src/lib/ai-port.ts` | Abort 专项测试 | 点击取消即刻中断推流 | **COMPLETE** | Safari 版更完善 | **NO** |
@@ -59,7 +59,7 @@
   - 原版 Chrome 依赖 Vercel AI SDK 返回结构化 JSON，前端再拆分为多个样式标签。
   - Safari Personal Edition 实现了真实的 SSE 流式打字机效果。文本由 Anthropic 流式推流直接输出，卡片内部采用纯原生 `textContent` 写入。
 - **权衡评估**:
-  1. **安全性 (Security)**: 纯 `textContent` 从底层消除了 XSS 攻击面；若引入 Markdown 解析器（如 marked），当模型输出被恶意网页注入 Prompt 操纵时，存在极高的脚本注入与逃逸风险。
+  1. **安全性 (Security)**: 采用纯原生 `textContent` 规避了 HTML 标签注入与解析风险；若引入 Markdown 解析器（如 marked），当模型输出被包含恶意标签的文本操纵时，会引入额外的解析与逃逸风险。
   2. **流式性能 (Streaming Performance)**: 在 WebKit / Safari 中，流式文本实时 Markdown 解析会导致高频的 DOM 节点销毁与重建（DOM churn）以及严重的样式重排（Layout thrashing）。当前纯文本 + rAF 批处理的开销仅为 1~2ms。
   3. **体积与依赖 (Bundle Size)**: 零第三方 Markdown 解析依赖，扩展核心包维持在 5.92 MB 纯净水准。
 - **定性判定**: **INTENTIONALLY SIMPLIFIED (故意简化为安全流式纯文本)**。
