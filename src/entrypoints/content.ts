@@ -11,7 +11,7 @@ import { applyStyle, clear, isSupported, paint, removeStyle } from '@/lib/highli
 import { HoverTracker } from '@/lib/hover';
 import { Card } from '@/lib/card';
 import { createWordNav, type WordNav } from '@/lib/keynav';
-import { AiStreamClient } from '@/lib/ai-port';
+import { AiStreamClient } from '@/lib/ai-port-client';
 import { DEFAULT_SETTINGS, siteDisabled } from '@/lib/types';
 import type { Analysis, DictEntry, Message, PageStats } from '@/lib/types';
 
