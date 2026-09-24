@@ -102,10 +102,14 @@
 | Storage Key | 数据结构 | 作用说明 | 敏感级别 | 淘汰策略 |
 | :--- | :--- | :--- | :---: | :--- |
 | `local:apiKeys` | `Partial<Record<Provider, string>>` | 存储模型服务商 API 密钥 | **高 (凭据)** | 长期保留至用户手动清空；仅后台访问 |
-| `local:explanations` | `Record<string, { word, explanation, updatedAt }>` | AI 释义本地缓存 | **无 (纯词典)** | **LRU 上限 2,000 条**；超出时按更新时间淘汰 |
+| `local:explanations` | `Record<string, { word, explanation, updatedAt }>` | 本地持久化的 AI 语境释义缓存 | **无** | **LRU 上限 2,000 条**；超出时按更新时间淘汰 |
 | `local:settings` | `Settings` (阈值/考纲/模型等) | 用户偏好配置 | **无** | 长期保留；缺失字段自动填充默认值 |
 | `local:knownWords` | `string[]` | 已认识单词集合 | **无** | 长期保留；集合自动去重 |
 | `local:apiKey` | `string` *(Legacy)* | 老版本单 Key 历史存储 | **高** | 启动时一次性迁移至 `local:apiKeys` 后即刻删除 |
+
+> **AI 释义缓存隐私与存储字段说明**:
+> - **持久化字段 (Stored)**: `word`, `explanation`, `updatedAt`
+> - **绝对禁止持久化字段 (Not Stored)**: `sentence`, `raw context`, `URL`, `title`, `selection`, `history`, `tabId`, `raw DOM`
 
 ---
 

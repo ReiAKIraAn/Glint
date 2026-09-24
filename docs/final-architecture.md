@@ -121,10 +121,14 @@ flowchart TD
 | Storage Key | 对应数据结构 / Schema | 所属模块 | 是否敏感 | 淘汰 / 保留策略 | 清理与重置行为 |
 | :--- | :--- | :--- | :---: | :--- | :--- |
 | `local:apiKeys` | `Partial<Record<Provider, string>>` | [`src/lib/keys.ts`](file:///Users/ada/Downloads/glint-main/src/lib/keys.ts) | **YES (凭据)** | 长期保留至用户手动清空或覆盖；仅后台访问 | 清空该字段，并提示用户可同步吊销网络权限 |
-| `local:explanations` | `Record<string, { word: string, explanation: string, updatedAt: number }>` | [`src/lib/explanation-cache.ts`](file:///Users/ada/Downloads/glint-main/src/lib/explanation-cache.ts) | **NO (纯词典)** | **LRU 上限 2,000 条**；超出时按 `updatedAt` 淘汰最旧条目 | 选项页提供“清空已生成释义”按钮，一键排空 |
+| `local:explanations` | `Record<string, { word: string, explanation: string, updatedAt: number }>` | [`src/lib/explanation-cache.ts`](file:///Users/ada/Downloads/glint-main/src/lib/explanation-cache.ts) | **NO** | **LRU 上限 2,000 条**；超出时按 `updatedAt` 淘汰最旧条目 | 选项页提供“清空已生成释义”按钮，一键排空 |
 | `local:settings` | `Settings` (包含 CEFR 阈值、考纲静音、选定模型、域名黑名单等) | [`src/lib/settings.ts`](file:///Users/ada/Downloads/glint-main/src/lib/settings.ts) | **NO** | 长期保留；缺失字段通过 `withDefaults` 自动填充 | 恢复为出厂默认设置 (`DEFAULT_SETTINGS`) |
 | `local:knownWords` | `string[]` (已标记认识的词根集合) | [`src/lib/settings.ts`](file:///Users/ada/Downloads/glint-main/src/lib/settings.ts) | **NO** | 长期保留；集合去重 | 选项页提供清空或手动移除指定单词入口 |
 | `local:apiKey` *(Legacy)* | `string` | [`src/lib/keys.ts`](file:///Users/ada/Downloads/glint-main/src/lib/keys.ts) | **YES** | 仅在启动时一次性迁移至 `local:apiKeys.anthropic`，迁移后即刻删除 | `migrateLegacyKey` 自动删除 (`removeValue`) |
+
+> **AI 释义缓存隐私与字段范围说明 (local:explanations Privacy Contract)**:
+> - **已持久化字段 (Stored)**: `word` (生词文本), `explanation` (模型生成释义纯文本), `updatedAt` (更新时间戳用于 LRU).
+> - **绝对禁止持久化字段 (Not Stored)**: 网页原句 (`sentence`), 原始上下文 (`raw context`), 网页链接 (`URL`), 网页标题 (`title`), 光标选区 (`selection`), 浏览历史 (`history`), 标签页标识 (`tabId`), 原始 DOM 树 (`raw DOM`).
 
 ---
 

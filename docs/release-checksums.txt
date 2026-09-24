@@ -1,0 +1,20 @@
+# Glint Safari Personal Edition — Release Artifact Checksums (SHA-256)
+# Build Toolchain: Node v22.14.0, pnpm 10.34.5, WXT 0.21.4, Vite 8.3.0, TypeScript 5.9.3
+# Target: Safari MV3 Production Build (.output/safari-mv3/)
+
+033e704d481fc18e167991b6242f454615aae56f7beeae7a1f090901965d13f1  .output/safari-mv3/chunks/popup--WtrLse4.js
+242a8d314ebbdfc85bda612b0f802d682bdf2e54b886ab33eaf978b7c90cb8db  .output/safari-mv3/content-scripts/content.js
+2977d2d03d9e563432be847b8699cf009749f31e2ed0b6b352f1f65a0238b713  .output/safari-mv3/data/exams.json
+297a4c1f3588d3fc89b135762ffadc81128ce3dbe69534ce428826e4539b665a  .output/safari-mv3/icon/128.png
+4b116ace4bd70f81817ce1faeadc07bd6ed3830c2b37a23e74799ac87f01cdb9  .output/safari-mv3/manifest.json
+507559910650ea526e6c6c7d9767a4c778665ff2fd969d992c735d43251e156b  .output/safari-mv3/data/dict.json
+66c30f06fe8fa08740bc1d07eecaa3da05632ba7bd1417a72deba64b41bb51ba  .output/safari-mv3/popup.html
+729485d5b31f5dfd2764817a08fb8d797500e89960a1e0a30a5deb98d98ad2c8  .output/safari-mv3/icon/32.png
+8adb7f94a58b65b5bcaa9a7e186cfdd7e23e466b702f45a883cf6db65c365082  .output/safari-mv3/assets/options-B4eJbnxl.css
+95560f4e225ff8e7e6a9e275e94eb8b5f259b63c5a221b2455e3ad691d0ee418  .output/safari-mv3/options.html
+aee6aa0935ef869d42f8249fcd840f2bb4286f4e4c90e1a44c1537f92273dd1e  .output/safari-mv3/icon/16.png
+c5fab51e7e751d2d9659077deab08ca38d9de36aa44b0e66ba3c7aebc569e10c  .output/safari-mv3/chunks/options-CwNUdxL2.js
+dc0419af1584b095f5b920f1c82e776f4c9bd5213255b17a254f9151a00ae2df  .output/safari-mv3/chunks/links-BnowTkuk.js
+eb43355c3342369c8709f5f660916668be40606bb7b9167c2bcee54f905d73a4  .output/safari-mv3/icon/48.png
+ee7cf07b22bf56643d970c64a8a807b7e97e6b775a2e37c0be06b3f2c1a18a06  .output/safari-mv3/background.js
+ff9c4b392b27a8a9c4a3d351b64d626a22ef7cdcd399a78a5314ba3d293323cd  .output/safari-mv3/assets/popup-BfmTgoaj.css

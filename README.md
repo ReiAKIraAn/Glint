@@ -76,6 +76,7 @@ NODE_OPTIONS=--max-old-space-size=6144 pnpm data
 
 ## Safari Personal Edition 文档索引
 
+- [最终发布基线 (Release Baseline)](docs/release-baseline.md)
 - [最终系统架构手册 (Final Architecture)](docs/final-architecture.md)
 - [WebKit 引擎依赖清单 (Safari/WebKit Dependencies)](docs/safari-webkit-dependencies.md)
 - [未来 Safari 升级指引 (Future Safari Upgrade)](docs/future-safari-upgrade.md)
