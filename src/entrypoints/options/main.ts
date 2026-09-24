@@ -28,6 +28,12 @@ import {
   settingsStore,
   type Backup,
 } from '@/lib/settings';
+import {
+  clearExplanations,
+  deleteExplanation,
+  getAllExplanations,
+} from '@/lib/explanation-cache';
+import type { ExplanationCacheEntry } from '@/lib/types';
 import { apiKeysStore } from '@/lib/keys';
 import { safeErrorMessage } from '@/lib/security';
 import {
@@ -681,40 +687,32 @@ async function refreshCounts() {
     : `<p class="empty">还没有标过「认识」的词。</p>`;
 
   // 新生成的排最前面——刚看过的词最可能是你想找的那条
-  const saved = Object.entries(await explanationsStore.getValue()).sort((a, b) => b[1].time - a[1].time);
+  const saved = await getAllExplanations();
   $('explainedCount').textContent = String(saved.length);
   $('explainedList').innerHTML = saved.length
-    ? saved.map(([word, item]) => entryRow(word, item)).join('')
+    ? saved.map((item) => entryRow(item)).join('')
     : `<li class="empty">还没有生成过释义。在网页上把鼠标停到标注的词上，点那个按钮就会有。</li>`;
 }
 
 /**
- * 一条释义摊开长什么样。
- *
- * 折起来只有词 + 一句中文，点开才是原句、译文、英文释义、例句这一整套——
- * 这里存的是你花过钱的东西，翻回来看得见全貌才有意义，
- * 但列表首先得能扫，所以默认收着。用 details/summary，不写展开收起的状态。
+ * 一条释义摊开长什么样 (Milestone 5 M5-W2: 纯文本 AI 释义契约)
+ * 仅依赖 word, explanation, updatedAt，绝不依赖 sentence, analysis 或其他网页上下文
  */
-function entryRow(word: string, item: Explained) {
-  const a = item.analysis;
-  const part = (label: string, body: string) =>
-    body ? `<div class="tag">${label}</div><div class="body">${body}</div>` : '';
-
+function entryRow(item: ExplanationCacheEntry) {
+  const preview = item.explanation.length > 80 ? item.explanation.slice(0, 80) + '...' : item.explanation;
   return `<li>
     <details>
       <summary>
-        <b>${escape(word)}</b>
-        <p>${escape(a.sense)}</p>
-        <time>${escape(ago(item.time))}</time>
+        <b>${escape(item.word)}</b>
+        <p>${escape(preview)}</p>
+        <time>${escape(ago(item.updatedAt))}</time>
       </summary>
       <div class="detail">
-        ${part('原句', `${boldWord(item.sentence, word, item.surface)}${a.sentenceZh ? `<span>${escape(a.sentenceZh)}</span>` : ''}`)}
-        ${part('英文释义', `<i>${escape(a.en)}</i>`)}
-        ${part('提示', escape(a.note))}
-        ${part('例句', `${escape(a.example)}<span>${escape(a.exampleZh)}</span>`)}
+        <div class="tag">AI 释义</div>
+        <div class="body" style="white-space: pre-wrap;">${escape(item.explanation)}</div>
       </div>
     </details>
-    <button class="ghost danger" data-word="${escape(word)}">删除</button>
+    <button class="ghost danger" data-word="${escape(item.word)}">删除</button>
   </li>`;
 }
 
@@ -747,35 +745,7 @@ function loadDict() {
 }
 
 $('exportAnki').addEventListener('click', async () => {
-  const saved = Object.entries(await explanationsStore.getValue());
-  if (!saved.length) {
-    setAnkiNote('还没有生成过释义，没有可以导出的卡片。', 'bad');
-    return;
-  }
-
-  const dict = await loadDict();
-  // 先生成的排前面：Anki 按导入顺序发新卡，这样复习到的次序和你读到它们的次序一致
-  const rows: AnkiRow[] = saved
-    .sort((a, b) => a[1].time - b[1].time)
-    .map(([word, item]) => {
-      const row = dict[word.toLowerCase()];
-      return {
-        word,
-        entry: row
-          ? {
-              phonetic: row[0],
-              translation: row[1],
-              tags: row[2].split(' ').filter(Boolean),
-              rank: row[3],
-            }
-          : null,
-        level: resolve(word).level,
-        item,
-      };
-    });
-
-  download(new Blob([toAnkiTSV(rows)], { type: 'text/plain;charset=utf-8' }), `glint-anki-${stamp()}.txt`);
-  setAnkiNote(`已导出 ${rows.length} 张卡片。在 Anki 里点 Import File 选中它，牌组会自动建成 Glint。`, 'ok');
+  setAnkiNote('Safari Personal Edition 暂不支持导出到 Anki。', 'bad');
 });
 
 function setAnkiNote(text: string, tone?: 'ok' | 'bad') {
@@ -807,10 +777,26 @@ $('siteList').addEventListener('click', async (event) => {
 // ---------------------------------------------------------------- 备份
 
 $('exportData').addEventListener('click', async () => {
-  const [knownWords, explanations] = await Promise.all([
+  const [knownWords, rawExplanations] = await Promise.all([
     knownWordsStore.getValue(),
     explanationsStore.getValue(),
   ]);
+  const explanations: Record<string, Explained> = {};
+  for (const [w, entry] of Object.entries(rawExplanations)) {
+    explanations[w] = {
+      sentence: '',
+      surface: entry.word,
+      analysis: {
+        sense: entry.explanation,
+        en: '',
+        note: '',
+        sentenceZh: '',
+        example: '',
+        exampleZh: '',
+      },
+      time: entry.updatedAt,
+    };
+  }
   // apiKeys 有意不导出，理由见 settings.ts 里 Backup 的注释
   const backup: Backup = {
     version: BACKUP_VERSION,
@@ -849,14 +835,38 @@ $<HTMLInputElement>('importFile').addEventListener('change', async (event) => {
     return;
   }
 
-  const [knownWords, explanations] = await Promise.all([
+  const [knownWords, rawExplanations] = await Promise.all([
     knownWordsStore.getValue(),
     explanationsStore.getValue(),
   ]);
-  const merged = mergeBackup(backup, { knownWords, explanations });
+  const existingForMerge: Record<string, Explained> = {};
+  for (const [w, entry] of Object.entries(rawExplanations)) {
+    existingForMerge[w] = {
+      sentence: '',
+      surface: entry.word,
+      analysis: {
+        sense: entry.explanation,
+        en: '',
+        note: '',
+        sentenceZh: '',
+        example: '',
+        exampleZh: '',
+      },
+      time: entry.updatedAt,
+    };
+  }
+  const merged = mergeBackup(backup, { knownWords, explanations: existingForMerge });
+  const mergedExplanations: Record<string, ExplanationCacheEntry> = {};
+  for (const [w, exp] of Object.entries(merged.explanations)) {
+    mergedExplanations[w] = {
+      word: w,
+      explanation: exp.analysis?.sense || '',
+      updatedAt: exp.time || Date.now(),
+    };
+  }
   await Promise.all([
     knownWordsStore.setValue(merged.knownWords),
-    explanationsStore.setValue(merged.explanations),
+    explanationsStore.setValue(mergedExplanations),
     // 备份里的设置可能来自另一个版本，照样过一遍补默认值那道关
     settingsStore.setValue({ ...settings, ...backup.settings }),
   ]);
@@ -905,17 +915,16 @@ $('knownList').addEventListener('click', async (event) => {
 $('explainedList').addEventListener('click', async (event) => {
   const word = (event.target as HTMLElement).closest<HTMLElement>('[data-word]')?.dataset.word;
   if (!word) return;
-  const saved = { ...(await explanationsStore.getValue()) };
-  delete saved[word];
-  await explanationsStore.setValue(saved);
+  await deleteExplanation(word);
   await refreshCounts();
 });
 
 $('resetExplained').addEventListener('click', async () => {
-  const count = Object.keys(await explanationsStore.getValue()).length;
+  const items = await getAllExplanations();
+  const count = items.length;
   if (!count) return;
   if (!confirm(`删掉全部 ${count} 条 AI 释义？以后再遇到这些词要重新生成，会重新花钱。`)) return;
-  await explanationsStore.setValue({});
+  await clearExplanations();
   await refreshCounts();
 });
 

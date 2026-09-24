@@ -262,4 +262,30 @@
 | **TTS-09** | 键盘与无障碍 | 原生 `<button type="button">`，无障碍名称与 `aria-hidden` 图标合规 | ✅ PASS |
 | **TTS-10** | API 缺失降级 | `speechSynthesis` 不存在或不可用时，按钮安全隐藏，卡片正常运行 | ✅ PASS |
 
+### 13. Milestone 5 Workstream 2: AI 释义本地持久化与缓存 (M5-W2 AI Persistence - tests/explanation-cache.test.ts)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM (20 项全覆盖测试 100% PASS)*
+
+| 场景 ID | 测试名称与要点 | 核心断言与覆盖边界 | 结果 |
+| :--- | :--- | :--- | :--- |
+| **CACHE-01** | 空缓存查询 | 初始空缓存查询返回 `null`，不抛错 | ✅ PASS |
+| **CACHE-02** | 缓存未命中 (Miss) | 查询未录入词汇返回 `null`，保持正常未命中状态 | ✅ PASS |
+| **CACHE-03** | 成功写入 (Write) | `putExplanation` 成功持久化，规范化小写 key，写入纯净契约 `{ word, explanation, updatedAt }` | ✅ PASS |
+| **CACHE-04** | 缓存命中 (Hit) | 查询已缓存词汇成功返回释义文本，大小写与空格归一化 | ✅ PASS |
+| **CACHE-05** | 命中刷新 LRU | 缓存命中时同步刷新 `updatedAt` 时间戳并持久化写回 | ✅ PASS |
+| **CACHE-06** | 重复词汇更新 | 相同词汇再次写入时，更新 explanation 并刷新时间戳，容量不虚增 | ✅ PASS |
+| **CACHE-07** | 2000 条上限容量 | 严格支持最多 2,000 条释义记录，容量内完整保持 | ✅ PASS |
+| **CACHE-08** | LRU 淘汰最旧条目 | 写入第 2,001 条时，按 `updatedAt` 升序淘汰最旧记录，保留最新 2,000 条 | ✅ PASS |
+| **CACHE-09** | 清空全部缓存 | `clearExplanations` 清空 `local:explanations`，绝不触碰 API Keys 或设置项 | ✅ PASS |
+| **CACHE-10** | 删除单条记录 | `deleteExplanation` 仅移除目标词条，其余条目与配额不受影响 | ✅ PASS |
+| **CACHE-11** | 用户取消不写入 | 用户主动 `AI_ABORT` 的请求绝对不写入缓存 | ✅ PASS |
+| **CACHE-12** | 服务商错误不写入 | Provider HTTP 500/401/429 报错时绝对不写入缓存 | ✅ PASS |
+| **CACHE-13** | 网络超时不写入 | 请求发生超时错误时绝对不写入缓存 | ✅ PASS |
+| **CACHE-14** | 局部部分流不写入 | 途中断开或异常退出的 partial stream 绝对不写入缓存 | ✅ PASS |
+| **CACHE-15** | 空释义不写入 | 推流完成但内容纯空白时绝对不写入缓存 | ✅ PASS |
+| **CACHE-16** | 存储写入失败容错 | 即使底层 storage 抛出异常（配额超限），`AI_DONE` 仍正常发至客户端，UX 不受阻 | ✅ PASS |
+| **CACHE-17** | 敏感字段绝对隔离 | 严格断言 storage 仅有 3 个允许字段，`PRIVATE_DOCUMENT_12345` 句子及 API Key 绝对零泄露 | ✅ PASS |
+| **CACHE-18** | 旧 Schema 安全清洗 | 检测到包含 `sentence`/`analysis` 的历史数据自动丢弃清洗，保证敏感原句不残留 | ✅ PASS |
+| **CACHE-19** | 并发变更安全串行 | 模拟多标签页同时并发 `putExplanation`，通过 Promise 任务队列保证数据无并发覆盖丢失 | ✅ PASS |
+| **CACHE-20** | 缓存命中零 AI 调用 | 命中缓存时卡片直接进入 `done` 态并通过 `textContent` 展现，`aiClient.start()` 调用严格为 0 | ✅ PASS |
+
 

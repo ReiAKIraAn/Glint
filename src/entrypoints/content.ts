@@ -1,11 +1,11 @@
 import { browser, defineContentScript } from '#imports';
 import {
-  explanationsStore,
   knownWordsStore,
   readSettings,
   settingsStore,
   withDefaults,
 } from '@/lib/settings';
+import { getExplanation } from '@/lib/explanation-cache';
 import { collectCodeWords, scanSubtree, scanTextNode, sentenceAround, type Token } from '@/lib/scan';
 import { applyStyle, clear, isSupported, paint, removeStyle } from '@/lib/highlight';
 import { HoverTracker } from '@/lib/hover';
@@ -13,7 +13,7 @@ import { Card } from '@/lib/card';
 import { createWordNav, type WordNav } from '@/lib/keynav';
 import { AiStreamClient } from '@/lib/ai-port';
 import { DEFAULT_SETTINGS, siteDisabled } from '@/lib/types';
-import type { Analysis, DictEntry, Explained, Message, PageStats } from '@/lib/types';
+import type { Analysis, DictEntry, Message, PageStats } from '@/lib/types';
 
 /** 页面再长也不至于要标这么多词。超过说明大概率是误判，别把页面搞成筛子。 */
 const MAX_TOKENS = 2500;
@@ -81,8 +81,6 @@ export default defineContentScript({
 
     settings = await readSettings();
     let known = new Set(await knownWordsStore.getValue());
-    /** 存储里那份释义的内存镜像。hover 是同步问的，不能每次都去 await 存储。 */
-    let explained: Record<string, Explained> = await explanationsStore.getValue();
 
     /**
      * 卡片有没有能力解释词库外的词。扫描时就要知道——没有这个能力就干脆别标，
@@ -131,6 +129,7 @@ export default defineContentScript({
       lookup: (word) => send({ kind: 'dict:lookup', word }) as Promise<DictEntry | null>,
       aiClient: aiStreamClient,
       sentenceOf: (token) => sentenceAround(token),
+      getCachedExplanation: (word) => getExplanation(word),
       aiReady: async () => canExplain,
       onKnown: async (lemma) => {
         known.add(lemma);
@@ -316,10 +315,6 @@ export default defineContentScript({
     knownWordsStore.watch((next) => {
       known = new Set(next);
       schedule(run);
-    });
-    // 设置页删了某条释义，这边的镜像跟着变。不用重扫，标注不受它影响。
-    explanationsStore.watch((next) => {
-      explained = next;
     });
 
     window.addEventListener('pagehide', () => {

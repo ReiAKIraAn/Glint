@@ -61,6 +61,8 @@ export interface CardDeps {
   analyze?(token: Token): Promise<{ ok: true; analysis: Analysis } | { ok: false; error: string }>;
   /** AI 是否已配置好 */
   aiReady?(): Promise<boolean>;
+  /** M5-W2: 本地缓存释义查询 */
+  getCachedExplanation?(word: string): Promise<string | null>;
   /** 缓存释义 */
   cached?(lemma: string): Explained | null;
   onKnown(lemma: string): void;
@@ -382,7 +384,7 @@ export class Card {
     return this.aiErrorEl;
   }
 
-  startAi() {
+  async startAi() {
     if (!this.token) return;
     if (!this.deps.aiClient) return;
 
@@ -392,6 +394,33 @@ export class Card {
 
     this.cancelPendingRaf();
     const token = this.token;
+    const lookupKey = token.lemma || token.surface;
+
+    // M5-W2: Cache Read
+    // 优先本地缓存，若命中则立即显示并切换至 done 态，坚决不发送 AI_START
+    if (this.deps.getCachedExplanation) {
+      try {
+        const cached = await this.deps.getCachedExplanation(lookupKey);
+        if (this.token !== token) return;
+        if (cached) {
+          this.aiState = { kind: 'done', requestId: 'cached', text: cached };
+          this.aiExplainBtn.hidden = true;
+          this.aiCancelBtn.hidden = true;
+          this.aiStatusEl.hidden = true;
+          this.aiStatusEl.textContent = '';
+          this.aiErrorEl.hidden = true;
+          this.aiErrorEl.textContent = '';
+          this.aiTextEl.hidden = false;
+          this.aiTextEl.textContent = cached;
+          if (this.rect) this.position(this.rect);
+          return;
+        }
+      } catch (err) {
+        console.warn('[Glint] Failed to read explanation cache:', err);
+      }
+    }
+
+    if (this.token !== token) return;
     const sentence = this.deps.sentenceOf ? this.deps.sentenceOf(token) : token.surface;
 
     // 清除上一轮 AI 内容并切换至 loading

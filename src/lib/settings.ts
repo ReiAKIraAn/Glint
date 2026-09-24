@@ -46,33 +46,17 @@ export async function readSettings(): Promise<Settings> {
   return withDefaults(await settingsStore.getValue());
 }
 
-/**
- * 已经生成过的语境释义，按原型存。
- *
- * AI 那一步是这个扩展唯一花钱的地方，所以生成过就不再生成第二次——换页面、关浏览器
- * 都还在。要重新生成只有一条路：用户自己去设置页把那条删掉。
- */
-export const explanationsStore = storage.defineItem<Record<string, Explained>>(
-  'local:explanations',
-  { fallback: {} },
-);
+import {
+  EXPLANATION_LIMIT,
+  capExplanationEntries,
+  explanationsStore,
+} from './explanation-cache';
 
-/**
- * 存量上限。
- *
- * 定这个数的依据是配额：chrome.storage.local 不申请 unlimitedStorage 时是 10MB，
- * 一条释义连原句带译文大约 0.8KB，2000 条约 1.6MB，占配额的一成六，留足余量。
- * 没有上限的话它只会一直涨，涨到写不进去为止——而那时报错发生在「点了释义、
- * 等了几秒、结果没存下来」，最难查。
- *
- * 没有为此去申请 unlimitedStorage：为一个存量问题多要一项权限，
- * 换来的是安装时多一行吓人的说明和商店审核多一道解释，不划算。
- *
- * 代价是每存一条要重写整个对象（最坏 1.6MB）。可接受：这一步只在用户主动点了
- * 「AI 释义」之后发生，而那本来就要等一次网络往返。真嫌慢的话下一步是拆成
- * 一词一键存，但那会把设置页的列表和清空逻辑一起搅进去，现在不值当。
- */
-export const EXPLANATION_LIMIT = 2000;
+export {
+  EXPLANATION_LIMIT,
+  capExplanationEntries,
+  explanationsStore,
+};
 
 /**
  * 超出上限就丢掉最旧的几条。

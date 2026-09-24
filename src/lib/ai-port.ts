@@ -13,6 +13,8 @@ import { safeErrorMessage } from './security';
 import { readSettings } from './settings';
 import { isConfigured, type Settings } from './types';
 
+import { putExplanation } from './explanation-cache';
+
 export const AI_PORT_NAME = 'glint:ai-stream';
 
 /**
@@ -81,6 +83,7 @@ export interface AiPortHandlerDeps {
   streamFn?: typeof fetchProviderStream;
   getSettings?: () => Promise<Settings>;
   getApiKey?: (settings: Settings) => Promise<string>;
+  putExplanation?: (word: string, explanation: string) => Promise<void>;
 }
 
 /**
@@ -271,6 +274,7 @@ export function handleAiPortConnection(port: PortLike, deps?: AiPortHandlerDeps)
         keyForRedaction = apiKey;
         const streamFn = deps?.streamFn ?? fetchProviderStream;
 
+        let fullText = '';
         await streamFn(
           settings,
           apiKey,
@@ -280,6 +284,7 @@ export function handleAiPortConnection(port: PortLike, deps?: AiPortHandlerDeps)
             if (state.isDisconnected) return;
             if (state.activeRequestId !== requestId) return;
             if (controller.signal.aborted) return;
+            fullText += delta;
             safePost(
               {
                 type: 'AI_CHUNK',
@@ -293,6 +298,20 @@ export function handleAiPortConnection(port: PortLike, deps?: AiPortHandlerDeps)
 
         if (state.isDisconnected || state.activeRequestId !== requestId) return;
         if (controller.signal.aborted) return;
+
+        // M5-W2: AI Persistence - 仅在完整成功、未取消、非空的 stream 下写入本地缓存
+        // 严格仅持久化 word 与 explanation，绝不带入 sentence, context, url 或凭据
+        const trimmedExplanation = fullText.trim();
+        if (trimmedExplanation) {
+          try {
+            const cacheWord = (payload.lemma || payload.word || '').trim();
+            const putCache = deps?.putExplanation ?? putExplanation;
+            await putCache(cacheWord, trimmedExplanation);
+          } catch (cacheErr) {
+            // Section 7: Cache write failure 不得破坏 AI UX
+            console.warn('[Glint] Failed to persist AI explanation:', cacheErr);
+          }
+        }
 
         safePost(
           {

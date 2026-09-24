@@ -6,6 +6,33 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 14: Milestone 5 / Workstream 2 — AI 释义本地持久化与缓存 (AI Explanation Persistence) - 2026-09-24
+- **持久化契约与隐私保护 (`src/lib/types.ts`, `src/lib/explanation-cache.ts`)**:
+  - 确立 M5-W2 最终持久化契约 `ExplanationCacheEntry`，严格限定仅包含 `{ word: string, explanation: string, updatedAt: number }` 三项字段。
+  - 严禁持久化 `sentence`, `context`, `surface`, `analysis`, `sentenceZh`, `example`, `url`, `title`, `dom`, `selection`, `tabId`, `frameId`, `requestId`, `provider`, `model`, `apiKey`。
+  - 实现了 `isCleanCacheEntry` 严格校验器与 `sanitizeExplanationStore` 历史污染清洗机制，历史数据中若包含网页原句或旧版 `analysis` 自动丢弃，绝不残留敏感信息。
+- **核心本地缓存模块 (`src/lib/explanation-cache.ts`)**:
+  - 实现基于 `local:explanations` 的 2,000 条上限容量与 LRU 淘汰机制 (`capExplanationEntries`)，超过容量时按 `updatedAt` 倒序截断淘汰最旧记录。
+  - 统一词汇规范化 Key (`normalizeWordKey`)：统一小写并裁剪前后空格，确保同一单词不同大小写形态命中同一槽位。
+  - 串行化任务队列 (`enqueue`)：保证读-改-写操作按序执行，杜绝跨异步流程数据覆盖。
+  - 提供了 `getExplanation`, `putExplanation`, `deleteExplanation`, `clearExplanations`, `getAllExplanations` 纯净 API。
+- **Background 持久化写入边界 (`src/lib/ai-port.ts`, `src/entrypoints/background.ts`)**:
+  - 将 Background 设为核心持久化写入入口：当且仅当 Provider SSE 推流完整完成、非空且未发生 Abort / 错误时，调用 `putExplanation` 写入。
+  - 存储写入故障容错（Section 7）：底层 storage 写入异常时仅记录控制台告警，绝不破坏前台已成功的 `AI_DONE` 响应与用户体验。
+  - 废弃 `background.ts` 中的旧 `remember` 逻辑，消除敏感字段写入隐患。
+- **悬浮卡片缓存读取与零网络命中 (`src/lib/card.ts`, `src/entrypoints/content.ts`)**:
+  - `startAi()` 接入 `getCachedExplanation(lookupKey)`：优先读取本地缓存，命中后立即切换至 `done` 态并通过安全 `textContent` 渲染，彻底阻断 `aiClient.start()` 与网络请求。
+  - 保持 Hover 零网络与零持久化读取原则：仅在用户显式点击“✨ AI 解释”后才触发单词缓存查询，页面加载与 Hover 不会读取 2000 条缓存。
+  - 移除了 `content.ts` 页面加载时无谓全量读取 `explanationsStore` 的冗余逻辑。
+- **设置页兼容与 Anki 隔离 (`src/entrypoints/options/main.ts`)**:
+  - `refreshCounts` 与 `entryRow` 升级为直接消费 `getAllExplanations()` 与 `ExplanationCacheEntry`，展现纯文本 AI 释义。
+  - 单条“删除”按钮与“清空全部释义缓存”按钮平滑接入 `deleteExplanation` 与 `clearExplanations`，绝不影响 API Keys 或设置项。
+  - 严格落实产品决策 D3 = NO，禁用并隔离 Anki 导出，不恢复旧格式兼容。
+- **持久化专项测试套件与回归核验 (`tests/explanation-cache.test.ts`)**:
+  - 新增 20 项全场景自动化测试（CACHE-01 至 CACHE-20），覆盖空缓存、未命中、成功写入、命中刷新 LRU、重复词汇更新、2000 条容量、第 2001 条 LRU 淘汰、清空缓存、单条删除、用户取消不写、错误不写、超时不写、局部流不写、空文本不写、存储失败容错、敏感字段绝对隔离 (`PRIVATE_DOCUMENT_12345` 零泄露)、旧数据清洗、并发写入串行化及缓存命中零网络调用。
+  - 全量自动化测试用例由 272 项增长至 292 项，100% 保持 PASS。
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功打包。
+
 ### Phase 13: Milestone 5 / Workstream 1 — 原生离线单词发音恢复 (Native Offline TTS Restoration) - 2026-09-24
 - **悬浮卡片离线发音 UI 与事件绑定 (`src/lib/card.ts`)**:
   - 音标行 `<div class="phonetic">` 恢复小喇叭按钮 `<button class="speak" data-act="speak">`，使用纯原生 `document.createElementNS` 构建 SVG 矢量喇叭图标，彻底杜绝 `innerHTML` 与 XSS 隐患。

@@ -8,7 +8,8 @@ import { AI_PORT_NAME, handleAiPortConnection } from '@/lib/ai-port';
 import { apiKeysStore, migrateLegacyKey } from '@/lib/keys';
 import { fetchProviderModels } from '@/lib/provider-network';
 import { redactSecrets, safeErrorMessage, sanitizeUrl } from '@/lib/security';
-import { capExplanations, explanationsStore, readSettings } from '@/lib/settings';
+import { putExplanation } from '@/lib/explanation-cache';
+import { readSettings } from '@/lib/settings';
 import {
   PROVIDERS,
   baseURLOf,
@@ -231,39 +232,12 @@ async function analyze(word: string, lemma: string, sentence: string): Promise<R
       abortSignal: AbortSignal.timeout(ANALYZE_TIMEOUT),
     });
     const analysis = parse(text);
-    await remember(lemma, { sentence, surface: word, analysis, time: Date.now() });
+    if (analysis.sense) {
+      await putExplanation(lemma, analysis.sense).catch(() => {});
+    }
     return { ok: true, analysis };
   } catch (error) {
     return { ok: false, error: safeErrorMessage(describe(error, settings.provider), [configured.key]) };
-  }
-}
-
-/**
- * 生成成功就立刻存下来。同一个词不该付第二次——换页面、关浏览器都还算数，
- * 要重新生成得用户自己去设置页删掉那一条。
- *
- * **存盘放在这里，不放在内容脚本里**：钱是在这一行上面那次 generateText 里花掉的，
- * 而内容脚本随时可能连人带上下文一起消失——请求飞着的时候用户点了个链接跳走，
- * 页面一卸载，那边的存盘代码根本不会执行，但这边已经付过了。存在花钱的那一端，
- * 结果就和页面的死活无关。
- *
- * 写之前重新读一次，不要拿任何内存里的镜像去覆盖：存的是整个对象，
- * 而另一个标签页这段时间可能刚生成过几条，那都是花过钱的东西。
- * 不是原子的（storage 没有比较并交换），但重读一次把冲突窗口压到了这两行之间。
- * 真要根治得一词一键存，那会把设置页的列表和清空逻辑一起搅进去（见 settings.ts）。
- */
-async function remember(lemma: string, entry: Explained): Promise<void> {
-  try {
-    const stored = await explanationsStore.getValue();
-    await explanationsStore.setValue(capExplanations({ ...stored, [lemma]: entry }));
-  } catch {
-    /**
-     * 存不下也要把释义交出去。
-     *
-     * 配额满、或者存储这一刻不可用——这些都不该让一次**已经付过钱的**成功生成
-     * 变成卡片上的一句报错。代价只是这个词下次还得重新生成，
-     * 比起「钱花了、东西也没看到」是明显划算的那一边。
-     */
   }
 }
 

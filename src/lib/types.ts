@@ -54,6 +54,17 @@ export interface Explained {
 }
 
 /**
+ * Milestone 5 (D2 & D10) 持久化 AI 释义缓存条目契约。
+ * 严格仅包含词汇原型、纯文本释义与 LRU 更新时间戳。
+ * 严禁包含句子、网页上下文、DOM、URL 或凭据。
+ */
+export interface ExplanationCacheEntry {
+  word: string;
+  explanation: string;
+  updatedAt: number;
+}
+
+/**
  * 国内考纲阶梯。0 表示不用这个维度。
  * 选了之后，该考纲及以下的词全部静音——相当于一次性把几千个词标成「我认识」。
  */
