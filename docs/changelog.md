@@ -6,6 +6,18 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 4: Milestone 1 — 扫描与高亮渲染闭环 (Scan & Highlight Engine) - 2026-09-24
+- **CSS Custom Highlight 样式注入双轨容灾机制**:
+  - `src/lib/highlight.ts`: 在采用 `document.adoptedStyleSheets` 的基础上，增加 WebKit 隔离上下文 (Isolated World) 异常捕获与 `<style id="glint-mark-style">` 自动降级回退机制，确保在任何 WebKit 权限约束下样式均可稳定注入渲染。
+  - `removeStyle`: 同步清空 `adoptedStyleSheets` 与 DOM 中的 fallback `<style>` 元素。
+- **Web Inspector 诊断日志**:
+  - `src/entrypoints/content.ts`: 引入非侵入式控制台诊断输出（`[glint] Highlighted X words` 与能力告警），方便在 Safari 开发者工具中即时定位脚本注入状态与高亮命中数量。
+- **高亮渲染与样式生命周期测试套件**:
+  - 新增 `tests/highlight.test.ts`: 完整覆盖 `isSupported` 能力检测、Token 范围录入 `CSS.highlights`、`adoptedStyleSheets` 动态挂载与跨上下文异常平滑降级。
+  - 自动化回归测试用例由 97 项增加至 101 项，全部通过 (pnpm test 1011ms)。
+- **Safari MV3 生产构建与打包**:
+  - `.output/safari-mv3/` (5.90MB) 与 `.output/glint-1.1.1-safari.zip` (2.22MB) 构建就绪，TypeScript 零错误。
+
 ### Phase 1: 完整审计与 Safari-First 架构规划 (Audit & Architecture) - 2026-09-24
 - **代码库导入与分支管理**:
   - 保留原始 upstream Glint 代码于 `main` 分支。

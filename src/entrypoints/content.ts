@@ -73,7 +73,10 @@ export default defineContentScript({
       return undefined;
     });
 
-    if (!supported) return;
+    if (!supported) {
+      console.warn('[glint] CSS Custom Highlight API not supported in this environment.');
+      return;
+    }
 
     settings = await readSettings();
     let known = new Set(await knownWordsStore.getValue());
@@ -191,6 +194,7 @@ export default defineContentScript({
       tokens = scanSubtree(document.body, settings, known, canExplain, codeWords, examWords, seen).slice(0, MAX_TOKENS);
       paint(tokens);
       hover.setTokens(tokens);
+      console.info(`[glint] Highlighted ${tokens.length} words (user level: ${settings.level}).`);
     }
 
     /** 键盘唯一能唤出卡片的入口，见 keynav.ts。 */

@@ -55,19 +55,40 @@ export function clear() {
  * 页面脚本遍历 head 的时候不会被我们绊到。
  */
 let sheet: CSSStyleSheet | undefined;
+let fallbackStyle: HTMLStyleElement | undefined;
 
 export function applyStyle(style: Settings['style']) {
-  if (!sheet) {
-    sheet = new CSSStyleSheet();
-    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  const cssText = css(style);
+  try {
+    if (!sheet) {
+      sheet = new CSSStyleSheet();
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    }
+    sheet.replaceSync(cssText);
+    return;
+  } catch (err) {
+    console.warn('[glint] adoptedStyleSheets failed, falling back to <style> tag:', err);
   }
-  sheet.replaceSync(css(style));
+
+  if (!fallbackStyle) {
+    fallbackStyle = document.createElement('style');
+    fallbackStyle.id = 'glint-mark-style';
+    (document.head || document.documentElement).appendChild(fallbackStyle);
+  }
+  fallbackStyle.textContent = cssText;
 }
 
 export function removeStyle() {
-  if (!sheet) return;
-  document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
-  sheet = undefined;
+  if (sheet) {
+    try {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+    } catch {}
+    sheet = undefined;
+  }
+  if (fallbackStyle) {
+    fallbackStyle.remove();
+    fallbackStyle = undefined;
+  }
 }
 
 /**
