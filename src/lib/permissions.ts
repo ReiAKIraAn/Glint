@@ -55,12 +55,14 @@ export async function requestHostPermission(origin: string): Promise<{ ok: boole
 
 /**
  * 撤销某个 Origin 的访问权限（例如当用户清除 Key 时，遵循最小权限原则）。
+ * 若底层浏览器引擎（如 WebKit）因权限性质限制撤销，如实记录原因，不伪造成功状态。
  */
-export async function revokeHostPermission(origin: string): Promise<boolean> {
-  if (!browser?.permissions?.remove) return true;
+export async function revokeHostPermission(origin: string): Promise<{ ok: boolean; reason?: string }> {
+  if (!browser?.permissions?.remove) return { ok: true };
   try {
-    return await browser.permissions.remove({ origins: [origin] });
-  } catch {
-    return false;
+    const success = await browser.permissions.remove({ origins: [origin] });
+    return { ok: success };
+  } catch (err) {
+    return { ok: false, reason: safeErrorMessage(err) };
   }
 }

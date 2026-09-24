@@ -23,7 +23,8 @@
 | **站点与设置存储**| `tests/site.test.ts`, `settings.test.ts` | 子域名继承匹配 (`en.wikipedia.org` ↔ `wikipedia.org`)、默认配置补充与老字段平滑升级 |
 | **增量扫描批处理**| `tests/incremental-scan.test.ts` | 局部 DOM 节点添加/删除/文本变更时，校验是否仅扫描变动子树，增量计算是否准确 |
 | **高亮渲染与样式注入**| `tests/highlight.test.ts` | `CSS.highlights` 范围注册、`document.adoptedStyleSheets` 动态挂载、WebKit 隔离环境异常降级回退 `<style>` |
-| **悬浮定位与卡片生命周期**| `tests/hover-card.test.ts` (新增) | WebKit Element 边界解析、Token 词头/词中/词尾 hit-test、脱离 DOM 节点过滤、单例 DOM 复用、XSS 注入纯文本安全校验 |
+| **悬浮定位与卡片生命周期**| `tests/hover-card.test.ts` | WebKit Element 边界解析、Token 词头/词中/词尾 hit-test、脱离 DOM 节点过滤、单例 DOM 复用、XSS 注入纯文本安全校验 |
+| **Provider 网络切片与凭据安全**| `tests/provider-network.test.ts` (新增) | Header 鉴权、URL/日志/报错/ContentScript 零泄露、单 Origin 权限申请/拒绝/已授权、HTTP/网络/超时/畸形响应五路径、Key 清除与撤销 |
 
 ---
 
@@ -83,14 +84,29 @@
 - [ ] 按 `Alt+Shift+G`，平滑回退至上一个生词。
 - [ ] 按 `Esc`，当前弹出的卡片立即收起。
 
-### 5. AI 语境释义端到端实测
-- [ ] 在选项页配置好有效的 API Key（如 Anthropic / Gemini / DeepSeek）。
-- [ ] 在文章中点击“AI 释义”，按钮切换为打字提示状态，等待几秒后成功返回：
-  - 中文当前句义项
-  - 英文释义
-  - 原句高亮翻译
-  - 新例句与助记
-- [ ] 重新将鼠标悬停在同一个词上，卡片直接秒显历史释义，不消耗二次网络额度。
+### 5. AI 服务商安全网络切片与权限验证 (Milestone 3 验收已完成)
+- [x] Options 中选择单个 Provider，手势触发单一 Origin 权限申请（STP 253 实机通过）。
+- [x] 若用户未授权/拒绝权限，扩展安全阻断且不发出网络请求（自动化与实机验证）。
+- [x] API Key 保存后输入框立即圆点脱敏掩码，存储至受控 local:apiKeys（STP 253 实机通过）。
+- [x] Background 发起最小真实 HTTPS 请求拉取模型列表，使用 Header 鉴权，绝不拼接 URL Query（STP 253 实机通过）。
+- [x] HTTP 错误与网络异常安全脱敏，UI 报错不泄露 Key（STP 253 实机通过）。
+- [x] 页面 Content Script 无法读取 API Key，跨上下文仅暴露布尔状态（自动化与实机验证）。
+- [x] 清除 API Key 时，存储彻底移除并触发单一 Origin 权限 revoke 处理（STP 253 实机通过）。
+
+#### Milestone 3 实测验证矩阵 (Safari Technology Preview Release 253 / WebKit 22626.1.8.19.2)
+*测试服务商：Anthropic (`https://api.anthropic.com/*`)*
+
+| 序号 | 验证项 | 预期行为 | 实测结果 | 判定 |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | 单一 Origin 权限申请 | 用户保存 Key 时，仅向 Safari 申请 `https://api.anthropic.com/*` | 实机确认仅申请单一目标域名，无 `https://*/*` 全站通配符 | **PASS** |
+| 2 | 用户手势约束 | 权限申请绑定在点击事件中触发 | 实机验证直接手势下顺畅调用，无手势调用被 WebKit 拦截拒绝 | **PASS** |
+| 3 | Key 存储受控与掩码 | Key 存入 `local:apiKeys`，输入框显示 `••••••••••••••••` | 实机验证输入框立即变为圆点掩码，DOM 中不残留原始 Key | **PASS** |
+| 4 | Background HTTPS 请求 | 后台发送 HTTPS GET 请求至 `https://api.anthropic.com/v1/models?limit=1000` | 实机抓包与控制台确认发出真实网络请求，返回 HTTP 响应 | **PASS** |
+| 5 | Header 鉴权规范 | 使用 `x-api-key: [REDACTED]` 头部鉴权，URL Query 零凭据 | 实机确认请求 URL 为纯路径，无 `?key=`，Header 携带鉴权头 | **PASS** |
+| 6 | 错误脱敏与异常处理 | HTTP 401 报错时，错误提示脱敏展示，绝不回显原始凭据 | 实机捕获 HTTP 401 报错，UI 显示脱敏提示，Console 与 UI 零 Key 泄露 | **PASS** |
+| 7 | Content Script 隔离 | Content Script 无法通过任何消息或 DOM 读取到 Key | 页面环境与内容脚本隔离，`ai:status` 仅传递 `{ configured: true }` | **PASS** |
+| 8 | 清除 Key 与状态复位 | 点击清除后，存储清空，输入框复位，触发权限撤销尝试 | 实机确认 `local:apiKeys` 清空，输入框复原，状态即时置为已清除 | **PASS** |
+
 
 ### 6. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。

@@ -47,15 +47,17 @@ test('Safari 构建配置严格践行最小权限原则 (Least-Privilege)', () =
     'Safari Personal Edition 的 required host_permissions 必须为空数组',
   );
 
-  // 2. Safari 的 optional_host_permissions 必须包含预置 provider 域名与通用匹配规则
+  // 2. Safari 的 optional_host_permissions 必须包含预置 provider 域名，且严禁包含全站通配符 https://*/*
   const safariOptional = safariManifest.optional_host_permissions as string[];
   assert.ok(safariOptional.includes('https://api.anthropic.com/*'));
   assert.ok(safariOptional.includes('https://api.openai.com/*'));
   assert.ok(safariOptional.includes('https://generativelanguage.googleapis.com/*'));
   assert.ok(safariOptional.includes('https://api.deepseek.com/*'));
-  assert.ok(safariOptional.includes('http://localhost/*'));
-  assert.ok(safariOptional.includes('http://127.0.0.1/*'));
-  assert.ok(safariOptional.includes('https://*/*'));
+  assert.strictEqual(
+    safariOptional.includes('https://*/*'),
+    false,
+    'Safari 严禁申请全站通配符 https://*/*',
+  );
 
   // 3. Chrome 构建应维持向后兼容性
   const chromeRequired = chromeManifest.host_permissions as string[];

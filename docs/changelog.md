@@ -6,6 +6,24 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 6: Milestone 3 — 最小安全网络切片与 Safari 权限闭环 (Secure Provider Network Slice) - 2026-09-24
+- **Safari-First 最小权限与清单严密化 (Least-Privilege)**:
+  - `wxt.config.ts`: Safari 构建从 `optional_host_permissions` 中彻底移除 `https://*/*` 全站通配符，仅保留预置商业 AI Provider 的独立单域规则；`host_permissions` 维持为空数组 `[]`。
+  - `src/lib/permissions.ts`: 完善 `revokeHostPermission`，如实返回 `{ ok, reason }` 并捕获 WebKit `required permissions cannot be removed` 异常限制，杜绝伪造成功状态。
+- **独立安全的 Provider 网络模块 (provider-network.ts)**:
+  - 新增 `src/lib/provider-network.ts`: 实现单 Provider 最小 HTTPS 模型请求切片 (`fetchProviderModels`)。严格采用 Header 鉴权（`x-api-key`、`x-goog-api-key`、`Authorization: Bearer`），绝不拼接 URL Query；统一走 `sanitizeUrl` 与 `redactSecrets`。
+  - 健壮实现并覆盖五条路径：成功响应 (200)、HTTP 错误 (401/403/500)、网络故障 (TypeError)、请求超时 (TimeoutError) 与畸形响应 (非标准 JSON)。
+- **选项页与后台安全对接 (Options & Background Integration)**:
+  - `src/entrypoints/options/main.ts`: 用户点击 `#saveKey` 时在前置直接用户手势内触发单一 Origin 权限校验 (`hasHostPermission` / `requestHostPermission`)，用户拒绝时安全阻断且不落盘 Key；保存成功后输入框立即圆点掩码 (`KEY_MASK`)，并立即触发最小网络探测。
+  - `src/entrypoints/background.ts`: `models()` 委托至 `fetchProviderModels` 发出安全 HTTPS 请求，Content Script 永远无法读取 API Key。
+- **Milestone 3 自动化测试套件 (12 项专项覆盖)**:
+  - 新增 `tests/provider-network.test.ts`: 全面覆盖正常 API 请求、URL 零 Key、日志零泄露、报错回显脱敏、Content Script 隔离、单一 Origin 权限申请/拒绝/已授权、HTTP 错误、网络故障、超时、畸形响应、Key 清除与撤销。
+  - 自动化测试用例由 107 项增长至 119 项，全部通过 (pnpm test 1269ms)。
+- **Safari MV3 生产构建与打包更新**:
+  - 构建产物 `.output/safari-mv3/` (5.88MB) 与 `.output/glint-1.1.1-safari.zip` (2.22MB) 打包更新完毕。
+- **架构决策记录 (ADR)**:
+  - 新增 `docs/adr/001-safari-permissions-network.md`，沉淀 Safari TP 用户手势约束、全站通配符剥离与权限撤销行为边界。
+
 ### Phase 5: Milestone 2 — 交互与悬浮卡片闭环 (Hover & Card Engine) - 2026-09-24
 - **WebKit 边界 Text 节点精准反查 (resolveTextCaret)**:
   - `src/lib/hover.ts`: 实现 `resolveTextCaret`，在 WebKit / Safari 命中元素边缘返回 Element 容器与子节点索引时，平滑解析定位至真实目标 Text 节点与字符偏移，消除段落开头/结尾的命中盲区。

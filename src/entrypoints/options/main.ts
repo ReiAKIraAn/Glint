@@ -526,8 +526,11 @@ $('saveKey').addEventListener('click', async () => {
     if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
     await patch({ baseURLs: overrideBaseURL(baseURL) });
   } else if (origin) {
-    const granted = await grantOrigin(origin);
-    if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
+    const hasPerm = await hasHostPermission(origin);
+    if (!hasPerm) {
+      const granted = await requestHostPermission(origin);
+      if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
+    }
   }
 
   if (key) {
@@ -538,7 +541,7 @@ $('saveKey').addEventListener('click', async () => {
   paintProvider();
   setKeyStatus('已保存', 'ok');
   redraw(); // 生僻词的标注策略跟着变
-  void loadModels(true); // 刚配好，顺手把模型列表拉回来
+  void loadModels(false); // 刚配好，发起最小 HTTPS 请求拉取模型列表以验证链路
 });
 
 $('clearKey').addEventListener('click', async () => {
@@ -553,7 +556,10 @@ $('clearKey').addEventListener('click', async () => {
   // 最小权限：清除 Key 时撤销该 Provider 的单独域名授权
   const origin = originForProvider(settings, currentProvider);
   if (origin) {
-    void revokeHostPermission(origin);
+    const result = await revokeHostPermission(origin);
+    if (!result.ok && result.reason) {
+      console.warn(`[glint] 无法撤销 ${origin} 权限：${result.reason}`);
+    }
   }
 
   paintProvider();
@@ -640,15 +646,6 @@ $('fetchModels').addEventListener('click', async () => {
 /** 本机的几种写法。这些走 http 没问题——请求根本不出这台机器。 */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-async function grantOrigin(origin: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const ok = await browser.permissions.request({ origins: [origin] });
-    return ok ? { ok: true } : { ok: false, error: `浏览器没给 ${origin} 的访问权限` };
-  } catch (error) {
-    return { ok: false, error: safeErrorMessage(error) };
-  }
-}
-
 async function grantHost(baseURL: string): Promise<{ ok: boolean; error?: string }> {
   let url: URL;
   try {
@@ -662,7 +659,7 @@ async function grantHost(baseURL: string): Promise<{ ok: boolean; error?: string
   }
 
   const origin = `${url.origin}/*`;
-  return grantOrigin(origin);
+  return requestHostPermission(origin);
 }
 
 // ---------------------------------------------------------------- 我的词

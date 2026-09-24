@@ -36,6 +36,12 @@ export const storage = {
 
 export const browser = {
   runtime: { sendMessage: async () => undefined, getURL: (p: string) => p },
+  permissions: {
+    contains: async () => true,
+    request: async () => true,
+    remove: async () => true,
+    getAll: async () => ({ origins: [], permissions: [] }),
+  },
 };
 export const defineBackground = (fn: unknown) => fn;
 export const defineContentScript = (options: unknown) => options;

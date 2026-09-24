@@ -5,6 +5,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { APICallError, generateText, type LanguageModel } from 'ai';
 import { browser, defineBackground } from '#imports';
 import { apiKeysStore, migrateLegacyKey } from '@/lib/keys';
+import { fetchProviderModels } from '@/lib/provider-network';
 import { redactSecrets, safeErrorMessage, sanitizeUrl } from '@/lib/security';
 import { capExplanations, explanationsStore, readSettings } from '@/lib/settings';
 import {
@@ -341,65 +342,8 @@ function effortOptions(provider: Provider, effort: Effort): ProviderOptions {
 async function models(): Promise<ModelList> {
   const settings = await readSettings();
   const configured = await ready(settings);
-  const spec = PROVIDERS[settings.provider];
-  // 只差模型名的时候也该能拉——ready() 会因为模型名为空说没配好，这里放宽一档
   const key = configured?.key ?? (await apiKeysStore.getValue())[settings.provider] ?? '';
-  if (!key && !spec.keyless) return { ok: false, error: '先填 API Key' };
-
-  const url =
-    spec.kind === 'anthropic'
-      ? 'https://api.anthropic.com/v1/models?limit=1000'
-      : spec.kind === 'google'
-        ? 'https://generativelanguage.googleapis.com/v1beta/models'
-        : spec.kind === 'openai'
-          ? 'https://api.openai.com/v1/models'
-          : `${baseURLOf(settings).replace(/\/$/, '')}/models`;
-
-  const headers: Record<string, string> =
-    spec.kind === 'anthropic'
-      ? {
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        }
-      : spec.kind === 'google'
-        ? {
-            'x-goog-api-key': key,
-          }
-        : { Authorization: `Bearer ${key}` };
-
-  if (!(await allowed(url))) {
-    return { ok: false, error: `没有访问 ${host(url)} 的权限，去设置页重新保存一次 Key` };
-  }
-
-  try {
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(MODELS_TIMEOUT) });
-    if (!response.ok) {
-      // 带上主机和接口自身说明，但彻底过滤任何可能反吐的 Key 或凭证
-      const detail = (await response.text().catch(() => '')).slice(0, 120);
-      const safeDetail = redactSecrets(detail, [key]);
-      return { ok: false, error: `${host(url)} 接口返回 ${response.status}${safeDetail ? `：${safeDetail}` : ''}` };
-    }
-    const body = (await response.json()) as {
-      data?: { id?: string }[];
-      models?: { name?: string }[];
-    };
-    /**
-     * 三种返回形状：OpenAI 系是 data[].id，Anthropic 也是 data[].id，
-     * Gemini 是 models[].name，而且带 "models/" 前缀，得削掉才是能填进去的模型名。
-     */
-    const list = body.models
-      ? body.models.map((item) => (item.name ?? '').replace(/^models\//, ''))
-      : (body.data ?? []).map((item) => item.id ?? '');
-    const cleaned = [...new Set(list.filter(Boolean))].sort();
-    return cleaned.length ? { ok: true, models: cleaned } : { ok: false, error: '这家没返回模型列表' };
-  } catch (error) {
-    if (timedOut(error)) {
-      return { ok: false, error: `${host(url)} ${MODELS_TIMEOUT / 1000} 秒没有响应，请求发出去了但没回来` };
-    }
-    const why = safeErrorMessage(error, [key]);
-    return { ok: false, error: `连不上 ${host(url)}（${why}）` };
-  }
+  return fetchProviderModels(settings, key);
 }
 
 /**

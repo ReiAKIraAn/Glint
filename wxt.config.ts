@@ -75,7 +75,7 @@ export default defineConfig({
        */
       host_permissions: isSafari ? [] : [...providerOrigins, ...LOCAL_ORIGINS],
       optional_host_permissions: isSafari
-        ? [...providerOrigins, ...LOCAL_ORIGINS, 'https://*/*']
+        ? [...providerOrigins]
         : ['https://*/*'],
       ...(isSafari ? {} : { minimum_chrome_version: '128' }),
     };
