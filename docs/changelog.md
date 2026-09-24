@@ -6,6 +6,21 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 17: Milestone 5 / Workstream 10 — 新增「文字变色」标注样式 (Text Color Annotation Style) - 2026-09-25
+- **功能特性 (`src/lib/types.ts`, `src/lib/highlight.ts`, `src/entrypoints/options/`)**:
+  - 新增第四种生词标注样式 `color`（文字变色）。
+  - Light 模式着色 `#D9622B`，Dark 模式着色 `#FF9A5C`（采用统一的 `@media (prefers-color-scheme: dark)`）。
+  - 显式声明 `text-decoration: none;` 与 `background-color: transparent;`，不产生下划线或底色，完全保留宿主原有字体排版样式。
+  - 设置面板外观模块新增第四张均分单选卡片，文案为 `reading` + `文字变色`。
+- **兼容性与性能契约**:
+  - 旧设置缺少 `style` 时自动回退至默认值 `dotted`，存量用户偏好完整保留。
+  - 沿用既有单实例 `CSSStyleSheet` + `replaceSync()` 样式原子覆写机制，微基准测试单次覆写耗时 < 0.3 ms。
+  - 零新增 DOM wrapper、零 TreeWalker 重新扫描、零 MutationObserver，样式切换未触发 AI 释义请求。
+- **测试与验证覆盖**:
+  - 全量自动化测试保持 385 / 385 PASS。
+  - 专项新增 17 个自动化测试用例（包括 `tests/annotation-color.test.ts` 中 COLOR-01 至 COLOR-16 对应 16 项测试，以及 `tests/settings.test.ts` 中 1 项 `style: "color"` 读取保留测试）。
+  - Safari Technology Preview (Release 253) 实机执行验证 ENV-01 与 COLOR-SAFARI-01..06 全量 PASS。
+
 ### Phase 16: Milestone 5 / Workstream 5 — 动态网页扫描韧性硬化与全量验证闭环 (Dynamic Web Robustness & Acceptance) - 2026-09-25
 - **扫描器动态韧性硬化与正确性修复 (`src/entrypoints/content.ts`, `src/lib/scan.ts`)**:
   - **RISK-01 修复（零生词页面非必要全量重扫）**: 废弃脆弱的 `tokens.length === 0` 作为“是否已初次扫描”的判定条件，引入显式生命周期标志 `hasRunInitialScan`；确保初次页面若无生词，后续发生 DOM 增量变更时严格执行增量扫描，绝不退化为整页全量重扫。
