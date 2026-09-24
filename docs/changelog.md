@@ -6,6 +6,30 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 11: Milestone 4 / Step 4 — 端到端集成验证与整体验收 (End-to-End Integration & M4 Final Verification) - 2026-09-24
+- **端到端集成测试套件 (`tests/m4-e2e.test.ts`)**:
+  - 新增 14 项全链路闭环 E2E 测试，覆盖完整链路：`Card UI` ↔ `AiStreamClient` ↔ `runtime.Port IPC` ↔ `handleAiPortConnection` ↔ `fetchProviderStream` ↔ `Anthropic SSE`。
+  - E2E-01 正常完整流式请求：验证从显式点击、loading 切换、SSE 多 chunk 接收、rAF 批处理到 `AI_DONE` 结束全链路，确认无 `fullText` 冗余字段。
+  - E2E-02 用户中途 Abort：验证点击取消即刻切入 aborted 态，底层 `AbortController` 掐断网络流，迟到 chunk 静默丢弃。
+  - E2E-03 同 Port 请求替换：验证同一卡片快速连续触发生词时，前序请求被 abort 并标记 stale，后续新请求独立完整流式输出。
+  - E2E-04 跨 Port / 多标签页隔离：验证 Tab A 与 Tab B 独立并发推流，Abort Tab A 绝不影响 Tab B。
+  - E2E-05 Token 快速切换：验证鼠标移至新 Token 自动 abort 旧请求，新卡片显示本地词典且不自动启动 AI。
+  - E2E-06 卡片收起与滚动：验证 `card.hide()` 触发自动 abort 活动请求并清理未决 rAF。
+  - E2E-07 页面导航与卸载：验证页面卸载触发 Port disconnect 时后台自动释放网络流，无悬挂异常。
+  - E2E-08 Provider 异常脱敏：验证 HTTP 401/403/429/500、网络故障、超时等脱敏展示，无 Key 与堆栈回显。
+  - E2E-09 恶意输出转义：验证 `<script>` 与 `<img onerror>` 100% 作为纯文本转义写入，无脚本执行与新节点创建。
+  - E2E-10 API Key 隔离核查：确认 API Key 绝未跨越 Background 边界进入 Content Script、Port、DOM 或控制台。
+  - E2E-11 上下文收敛边界：确认 `AI_START` 仅携带目标词、lemma 与 `sentenceAround` 单句，无全页 HTML 或无关数据。
+  - E2E-12 响应 4000 字符截断：验证超出 `MAX_RESPONSE_CHARS` 立即中止底层推流，保留局部文本并标记截断。
+  - E2E-13 rAF 高频打字机合并：验证 100 个微小字符分块通过 rAF 批处理稳定合并，内容零丢失，顺序完全一致。
+  - E2E-14 循环生命周期无泄漏：验证连续 30 轮启动/流式/取消/隐藏/重开，DOM 单例唯一，无状态残留与监听器累积。
+- **自动化测试回归全绿**:
+  - 全量自动化测试用例由 248 项增长至 262 项，全量 100% PASS (pnpm test 1627ms)。
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功打包。
+- **Safari Technology Preview 实机端到端验证**:
+  - 在 STP Release 253 (CFBundleVersion 22626.1.8.19.2) 上完成 Tests 1~14 全面实测，全部 PASS。
+  - 生成专项验收文档 `docs/m4-integration-verification.md`。
+
 ### Phase 10: Milestone 4 / Step 3 — AI Card UI 与流式安全渲染 (Streaming Card UI Integration) - 2026-09-24
 - **悬浮卡片 AI 流式交互与状态机架构 (`src/lib/card.ts`)**:
   - 接入 `AiStreamClient`，实现类型安全的六态 UI 状态机（`idle`、`loading`、`streaming`、`done`、`error`、`aborted`），每态严格携带 `requestId` 进行世代守卫。

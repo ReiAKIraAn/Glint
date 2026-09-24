@@ -210,7 +210,27 @@
 | Test 9 | XSS 注入防护 | 模拟恶意包含 `<script>` 的返回内容，纯文本安全转义 | 模拟 payload 返回 `<script>alert(1)</script>`，卡片作为纯文本展示字符，页面无 script 节点注入，无弹窗 | **PASS** |
 | Test 10 | 单例与性能稳定 | 连续触发多次 AI、卡片隐藏与滚动，全局仅单一 DOM | 检查 Elements 面板确认 DOM 树仅有 1 个 `<glint-card>`，多次展开关闭无内存泄漏与残影 | **PASS** |
 
-### 9. 数据备份与 Anki 导出
+### 9. 全链路端到端集成测试套件 (Milestone 4 Step 4 - tests/m4-e2e.test.ts)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM 模拟环境 (14 项全链路集成测试 100% PASS)*
+
+| 测试场景 ID | 测试名称与验证要点 | 断言核心与边界覆盖 | 结果 |
+| :--- | :--- | :--- | :--- |
+| **E2E-01** | 正常完整请求链路 | Hover 零请求；点击进入 loading；SSE 多分块推流；`AI_DONE` 结束；文本完整且无冗余字段 | ✅ PASS |
+| **E2E-02** | 用户主动 Abort | 点击“取消”即刻进入 aborted 态；AbortController 掐断底层流；迟到 chunk 静默丢弃 | ✅ PASS |
+| **E2E-03** | 同 Port 请求替换 | 请求 A 推流中发起请求 B；A 立即 abort 并标记 stale；B 独立完整输出，无 A 残余混入 | ✅ PASS |
+| **E2E-04** | 多标签页跨 Port 隔离 | Tab A 与 Tab B 独立并发推流；Tab A 取消绝不影响 Tab B 正常完成；双端状态隔离 | ✅ PASS |
+| **E2E-05** | Token 快速切换 | 移动至新 Token 自动 abort 旧请求；新卡片显示本地词典且不自动启动 AI；旧词内容零污染 | ✅ PASS |
+| **E2E-06** | 卡片收起与滚动 | `card.hide()` 触发自动 abort 活动请求并清理未决 rAF；重新展示同一 Token 状态干净 | ✅ PASS |
+| **E2E-07** | 页面导航与断开 | 页面卸载或客户端 `disconnect()` 自动释放后台资源，无未捕获异常或孤儿请求 | ✅ PASS |
+| **E2E-08** | Provider 异常脱敏 | HTTP 401/403/429/500、网络故障、超时等脱敏展示，无 Key 与堆栈回显 | ✅ PASS |
+| **E2E-09** | 恶意输出纯文本防护 | `<script>`、`<img onerror>` 100% 作为纯文本转义呈现，无脚本执行与新节点创建 | ✅ PASS |
+| **E2E-10** | API Key 隔离核查 | 检查 IPC、DOM、window、控制台，确认 API Key 绝未跨越 Background 边界 | ✅ PASS |
+| **E2E-11** | 上下文收敛边界 | 抓取载荷确认仅含 `word`, `lemma`, `sentence`，无全页 HTML 或无关数据 | ✅ PASS |
+| **E2E-12** | 响应 4000 字符截断 | 超出 `MAX_RESPONSE_CHARS` 立即中止底层推流，保留局部文本并标记截断 | ✅ PASS |
+| **E2E-13** | rAF 高频打字机合并 | 100 个微小字符分块通过 rAF 批处理稳定更新，内容零丢失，顺序完全一致 | ✅ PASS |
+| **E2E-14** | 循环生命周期无泄漏 | 连续 30 轮启动/流式/取消/隐藏/重开，DOM 单例唯一，无状态残留与监听器累积 | ✅ PASS |
+
+### 10. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。
 - [ ] 打开 Anki 客户端执行“导入文件”，确认卡片自动建入 `Glint` 牌组，正反面格式完好。
 - [ ] 导出 JSON 备份，确认文件不含 API Key。
