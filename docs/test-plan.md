@@ -319,5 +319,42 @@
   - 因此本阶段将“Safari 配额一定为 5MB/10MB”的断言修正为：**Storage quota: UNVERIFIED**。
   - 506 KB 的实际数据体积在常规浏览器本地存储中处于极轻量水准，但不能推导为 Safari 的绝对上限保证。
 
+---
 
+### 15. Milestone 5 Workstream 8 Provider Adapter 测试矩阵与回归核验 (M5-W8 Adapter & Regression)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM (311/311 PASS)*  
+*实机目标环境：macOS 27.2 (Build 26B5091g) / Safari Technology Preview Release 253 (CFBundleVersion 22626.1.8.19.2)*
 
+#### 1. Provider Adapter 契约测试矩阵 (ADAPTER-01 至 ADAPTER-14)
+
+| 用例 ID | 测试项名称 | 验证行为与预期断言 | 自动化测试判定 |
+| :--- | :--- | :--- | :---: |
+| **ADAPTER-01** | Anthropic 适配器存在性 | `anthropicAdapter` 具备有效 `id === 'anthropic'` 并完整实现 `stream` 与 `listModels` | ✅ PASS |
+| **ADAPTER-02** | 静态注册表解析成功 | `hasProviderAdapter('anthropic') === true` 且 `getProviderAdapter('anthropic')` 准确解析至实例 | ✅ PASS |
+| **ADAPTER-03** | 未注册服务商安全阻断 | 传入未注册的 `'openai'` 时确定性抛出强类型 `UnsupportedProviderError` | ✅ PASS |
+| **ADAPTER-04** | 正常 SSE 增量推流分发 | Mock SSE 响应切片平滑触发 `ctx.onChunk` 增量回调并组装完整文本 | ✅ PASS |
+| **ADAPTER-05** | UTF-8 多字节跨 chunk 拼接 | 故意在多字节字符中间截断网络 chunk，解码器无乱码无字节丢失 | ✅ PASS |
+| **ADAPTER-06** | 网络异常归一化 | 底层网络 `TypeError` 被精准映射为 `ProviderNetworkError` | ✅ PASS |
+| **ADAPTER-07** | 协议畸形与空流防护 | 破损 JSON 与零 delta 空流被转换为 `ProviderProtocolError` | ✅ PASS |
+| **ADAPTER-08** | HTTP 状态码归一化 | 401、429、500 等状态码精准转换为带 `status` 的 `ProviderHttpError` | ✅ PASS |
+| **ADAPTER-09** | 用户主动取消停止读取 | `ctx.signal` 触发 abort 后立即释放 reader，后续绝不再调用 `onChunk` | ✅ PASS |
+| **ADAPTER-10** | 网络流超时阻断 | 超出配置的 `timeoutMs` 阈值时触发 `ProviderTimeoutError` | ✅ PASS |
+| **ADAPTER-11** | 4,000 字符硬截断限制 | 累计字符数超出限制时仅分发剩余字符，立即 abort 并抛出 `ProviderResponseTooLargeError` | ✅ PASS |
+| **ADAPTER-12** | URL 零密钥安全防护 | 校验请求 URL 绝对不含 API Key 或 `?key=` 查询参数，Header 正常鉴权 | ✅ PASS |
+| **ADAPTER-13** | 错误脱敏与无异常泄漏 | 抛出包含密钥的错误在 `mapProviderError` 经过 `redactSecrets` 脱敏为 `[REDACTED]` | ✅ PASS |
+| **ADAPTER-14** | 模型列表发现契约 | `adapter.listModels()` 正确获取模型列表并排序返回纯净字符串数组 | ✅ PASS |
+
+#### 2. 全链路架构与回归核查矩阵 (REG-01 至 REG-10)
+
+| 回归项 ID | 回归切面 | 验证内容与核心证据 | 判定 |
+| :--- | :--- | :--- | :---: |
+| **REG-01** | Hover/本地词典 | 悬停生词仅查询本地 5.7 万词离线字典，零 AI 网络请求 | ✅ PASS |
+| **REG-02** | 显式点击触发 | 必须由用户在悬浮卡片内显式点击“✨ AI 解释”才发起流式调用 | ✅ PASS |
+| **REG-03** | 流式渲染 UI | Shadow DOM 内部纯原生 `textContent` 写入，结合 rAF 帧合并，零 HTML/Markdown 依赖 | ✅ PASS |
+| **REG-04** | 主动取消控制 | 点击“取消”即刻下发 `AI_ABORT`，底层 reader 中止，卡片退出 loading 且不写缓存 | ✅ PASS |
+| **REG-05** | 生词切换隔离 | 切换至新生词时上一请求立即 abort，`requestId` 世代守卫阻断迟到旧 chunk | ✅ PASS |
+| **REG-06** | 缓存命中秒级返回 | 同一词再次点击优先命中 `local:explanations`，完全跳过 AI 网络流 | ✅ PASS |
+| **REG-07** | 缓存未命中完整写入 | 仅当流式完整成功 (`AI_DONE`) 且非空时写入 3 项纯净字段，异常/取消不写入 | ✅ PASS |
+| **REG-08** | 缓存清空不越权 | 设置页“清空 AI 释义缓存”仅重置 `local:explanations`，绝不触碰 API Keys 与设置 | ✅ PASS |
+| **REG-09** | 错误安全脱敏 | 401 鉴权失败、离线、服务端故障等均通过 `redactSecrets` 脱敏后展现，零明文凭证 | ✅ PASS |
+| **REG-10** | 凭据单向隔离 | API Key 独占保存在 Background `local:apiKeys`，Content Script 依赖树彻底切断 | ✅ PASS |

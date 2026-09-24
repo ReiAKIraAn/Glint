@@ -6,6 +6,24 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 15: Milestone 5 / Workstream 8 — Provider Adapter 架构解耦与实机回归 (Provider Adapter Architecture & Regression) - 2026-09-24
+- **Provider Adapter 契约与静态注册体系 (`src/lib/providers/`)**:
+  - 创建极简 `ProviderAdapter` 接口与 `ProviderStreamContext`，仅关注网络端点、请求头鉴权、Payload 序列化与 SSE 解析，完全剥离 DOM、Card UI、Port 通信、Safari 权限与本地缓存。
+  - 实现基于编译期静态映射的 `ProviderRegistry` (`Map<Provider, ProviderAdapter>`)，严禁动态引入远端代码或 `eval()`，对未注册服务商安全抛出类型化的 `UnsupportedProviderError`。
+  - 创建专职 `AnthropicAdapter`，迁移全部 Anthropic 专有逻辑，保持 `POST https://api.anthropic.com/v1/messages`、`x-api-key`、`MAX_RESPONSE_CHARS = 4000` 截断及 60s 超时语义完全等价。
+- **网络层与调度层解耦 (`src/lib/provider-network.ts`, `src/lib/ai-port.ts`)**:
+  - 重构 `src/lib/provider-network.ts`，从 532 行 Anthropic 专属代码收敛为轻量适配器委托层，统一转接 `fetchProviderStream` 与 `fetchProviderModels`。
+  - 重构 `src/lib/ai-port.ts`，彻底消除硬编码的 `settings.provider !== 'anthropic'` 检查，转由 `hasProviderAdapter` 与 `getProviderAdapter` 动态解析；`AiPortHandlerDeps` 扩展 `getAdapter` / `hasAdapter` 依赖注入接口。
+- **内容脚本依赖隔离与打包优化 (`src/lib/ai-port-client.ts`, `src/entrypoints/content.ts`)**:
+  - 提取纯净的 `AiStreamClient` 与 Port 消息接口至独立轻量模块 `ai-port-client.ts`。
+  - 调整 `content.ts` 引用路径，彻底切断 Content Script 对 Background 密钥管理（`keys.ts`）与适配器实现（`anthropic-adapter.ts`）的静态依赖链，`content.js` 产物体积从 504.25 kB 降至 496.63 kB。
+- **Provider Adapter 专项契约测试套件 (`tests/provider-adapter.test.ts`)**:
+  - 新增 14 项全维度自动化测试（ADAPTER-01 至 ADAPTER-14），覆盖适配器契约符合性、注册表解析、未注册防护、正常 SSE 流分发、跨 chunk UTF-8 多字节拆分、网络故障归一化、协议畸形与空流防护、HTTP 状态码映射、用户中止释放 reader、60s 超时、4,000 字符硬截断、URL 零 Key 断言、错误信息脱敏与模型列表发现。
+  - 全量自动化测试用例由 297 项增长至 311 项，100% 保持 PASS。
+- **Safari 生产构建与实机环境核验**:
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功打包。
+  - 在 macOS 27.2 (Build 26B5091g) + Safari Technology Preview Release 253 实机环境中完成架构与安全边界回归核验。
+
 ### Phase 14: Milestone 5 / Workstream 2 — AI 释义本地持久化与缓存 (AI Explanation Persistence) - 2026-09-24
 - **持久化契约与隐私保护 (`src/lib/types.ts`, `src/lib/explanation-cache.ts`)**:
   - 确立 M5-W2 最终持久化契约 `ExplanationCacheEntry`，严格限定仅包含 `{ word: string, explanation: string, updatedAt: number }` 三项字段。
