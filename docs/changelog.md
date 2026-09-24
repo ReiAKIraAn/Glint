@@ -6,6 +6,22 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 12: Milestone 5 / Preflight — 功能完备性与架构差距审计 (Feature Completeness & Architecture Gap Audit) - 2026-09-24
+- **功能完备性与架构差距全景审计 (`docs/m5-feature-gap-audit.md`)**:
+  - 全面比对 Original Glint upstream (commit `6927753` / `main` 分支) 与当前 Safari Personal Edition (HEAD `caa4c91` / `safari-personal` 分支)。
+  - 梳理 16 项核心功能全量迁移矩阵，明确状态标记：`COMPLETE`、`PARTIAL`、`MISSING`、`INTENTIONALLY EXCLUDED`、`BLOCKED`、`UNVERIFIED`。
+  - 深度识别被推迟/暂未启用的功能：
+    - 原生离线单词发音 (`src/lib/speak.ts` Web Speech API 已就绪但卡片暂无按钮)
+    - AI 释义本地持久化 (`local:explanations` 2000 条 LRU 缓存未接入流式结果，导致刷新丢失且 Anki 导出无数据)
+    - 多服务商流式网络扩展 (目前仅打通 Anthropic SSE 流式网络层)
+    - macOS 平台快捷键冲突 (`Alt+G` / `Alt+Shift+G` 在 macOS 上为 Option 键，存在特殊字符输入冲突)
+  - 梳理扫描算法、高亮渲染、卡片生命周期、存储与缓存全景以及 WebKit 能力矩阵。
+  - 汇总 5 大客观候选工作流与 5 项需用户明确裁决的核心架构决策。
+- **测试计划与回归核验**:
+  - `docs/test-plan.md` 注册 Section 11（Milestone 5 预检差距审计记录）。
+  - 全量自动化测试 262/262 项 100% 保持通过，TypeScript 严格检查零报错。
+  - 生产代码 (`src/`) 保持 100% 零修改。
+
 ### Phase 11: Milestone 4 / Step 4 — 端到端集成验证与整体验收 (End-to-End Integration & M4 Final Verification) - 2026-09-24
 - **端到端集成测试套件 (`tests/m4-e2e.test.ts`)**:
   - 新增 14 项全链路闭环 E2E 测试，覆盖完整链路：`Card UI` ↔ `AiStreamClient` ↔ `runtime.Port IPC` ↔ `handleAiPortConnection` ↔ `fetchProviderStream` ↔ `Anthropic SSE`。

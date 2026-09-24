@@ -240,3 +240,9 @@
 - [ ] 网页前进/后退/SPA 路由切换，扩展稳定响应。
 - [ ] Safari 休眠并唤醒，扩展功能保持正常。
 
+### 11. Milestone 5 预检差距审计记录 (M5 Preflight Feature Gap Audit)
+- [x] 完成 Original Glint (commit `6927753`) 与 Safari Personal (HEAD `caa4c91`) 全功能迁移矩阵梳理 (`docs/m5-feature-gap-audit.md`)。
+- [x] 审计识别出未在当前 Safari 卡片中启用的功能：离线英文发音 (Web Speech API)、AI 释义本地持久化 (`local:explanations` 2000 条 LRU)、Anki 笔记导出连通性。
+- [x] 审计确认 262 项自动化回归测试 100% 通过，生产代码 `src/` 保持零变更。
+- [x] 明确标注 macOS 平台 `Option+G` 系统键位冲突与复杂 SPA 极端页面动态扫描为 M5 核心风险区。
+
