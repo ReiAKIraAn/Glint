@@ -71,3 +71,16 @@ NODE_OPTIONS=--max-old-space-size=6144 pnpm data
 代码以 [MIT](LICENSE) 发布。
 
 词库来自 [ECDICT](https://github.com/skywind3000/ECDICT)（MIT）、[CEFR-J Vocabulary Profile](https://github.com/openlanguageprofiles/olp-en-cefrj)（注明出处即可免费使用）和 Octanove C1/C2 Profile（CC BY-SA 4.0）。加工出来的索引文件按 CC BY-SA 4.0 发布，详见 [NOTICE.md](NOTICE.md)。
+
+---
+
+## Safari Personal Edition 文档索引
+
+- [最终系统架构手册 (Final Architecture)](docs/final-architecture.md)
+- [WebKit 引擎依赖清单 (Safari/WebKit Dependencies)](docs/safari-webkit-dependencies.md)
+- [未来 Safari 升级指引 (Future Safari Upgrade)](docs/future-safari-upgrade.md)
+- [长期维护与缺陷准入政策 (Maintenance Policy)](docs/maintenance-policy.md)
+- [灾难恢复与异常排查指南 (Recovery Guide)](docs/recovery-guide.md)
+- [最终技术签收报告 (Long-Term Freeze Report)](docs/long-term-freeze-report.md)
+- [发布候选与最终审计报告 (Final RC Report)](docs/final-report.md)
+- [全景功能对等报告 (Feature Parity Closure)](docs/feature-parity-closure.md)
