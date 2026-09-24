@@ -338,6 +338,14 @@ button.ghost.danger:hover { color: var(--danger); border-color: var(--danger); b
   text-underline-offset: .22em;
 }
 .swatch.tint { background: color-mix(in oklch, var(--accent) 16%, transparent); }
+.swatch.color {
+  color: #D9622B;
+}
+@media (prefers-color-scheme: dark) {
+  .swatch.color {
+    color: #FF9A5C;
+  }
+}
 
 /*
  * 统计。不用 flex:1 平分——「我的词」那张卡片里只有一个数字，一平分就成了

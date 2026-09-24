@@ -22,7 +22,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- | :---: |
 | **CEFR 分级扫描与分词** | A1~C2 难度过滤、词形还原、缩写过滤 | 相同算法，采用 WeakRef 解耦 Text 节点，内存安全 | `src/lib/scan.ts` | 50+ 项单元测试 | Wikipedia / 各种页面高亮正常 | **COMPLETE** | 算法一致，Safari 版增加了防内存泄漏弱引用 | **NO** |
 | **考纲静音与备考模式** | 中考~六级静音，备考交集过滤 | 相同算法与存储过滤 | `src/lib/scan.ts`, `src/lib/lexicon.ts` | 考纲过滤专项测试 | 设置页与前台联动正常 | **COMPLETE** | 经自动化用例验证行为一致 | **NO** |
-| **CSS Custom Highlight 高亮** | `::highlight(glint-mark)` 着色 | 双轨容灾机制 (`adoptedStyleSheets` + `<style>` 兜底) | `src/lib/highlight.ts` | `highlight.test.ts` | 高亮着色正常无重绘抖动 | **COMPLETE** | 增强了 Safari 跨上下文容灾 | **NO** |
+| **CSS Custom Highlight 高亮** | `::highlight(glint-mark)` 着色 | 双轨容灾机制 (`adoptedStyleSheets` + `<style>` 兜底)，支持四种标注样式（虚线、下划线、底色、文字变色 Text Color: Light #D9622B, Dark #FF9A5C） | `src/lib/highlight.ts` | `highlight.test.ts`, `annotation-color.test.ts` | 高亮着色正常无重绘抖动 | **COMPLETE** | 增强了 Safari 跨上下文容灾与文字变色能力 | **NO** |
 | **光标生词命中反查** | 坐标拾取生词 Range | `caretPositionFromPoint` + `resolveTextCaret` 边界解析 | `src/lib/hover.ts` | `hover-card.test.ts` | 悬停命中精度一致 | **COMPLETE** | 增强了 WebKit 元素边界解析能力 | **NO** |
 | **悬浮卡片展示本地词典** | 220ms 悬停弹出 Shadow DOM 卡片 | 单例 DOM + 纯 `textContent` 安全渲染，零 innerHTML | `src/lib/card.ts` | `ai-card.test.ts` | 秒级展现，原生样式隔离 | **COMPLETE** | Safari 版彻底杜绝 innerHTML 注入隐患 | **NO** |
 | **熟词标记与动态消词** | 点击“✓ 认识”全站消词并存盘 | 相同逻辑，Token 动态移除并局部重绘高亮 | `src/lib/card.ts`, `src/entrypoints/content.ts` | `token-lifecycle.test.ts` | 点击认识后当前与后续页面高亮消除 | **COMPLETE** | 经自动化用例验证行为一致 | **NO** |

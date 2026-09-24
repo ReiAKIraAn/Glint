@@ -97,6 +97,19 @@ export function removeStyle() {
  * 不用去猜网站的主题，也不会在暗色站上糊成一团。
  */
 function css(style: Settings['style']): string {
+  if (style === 'color') {
+    return `::highlight(${NAME}) {
+  color: #D9622B;
+  text-decoration: none;
+  background-color: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  ::highlight(${NAME}) {
+    color: #FF9A5C;
+  }
+}`;
+  }
+
   const ink = (pct: number) =>
     `color-mix(in oklch, oklch(62% 0.17 258) ${pct}%, currentColor)`;
   const wash = (pct: number) => `oklch(62% 0.17 258 / ${pct}%)`;
@@ -113,7 +126,7 @@ function css(style: Settings['style']): string {
    * 三种样式的浓淡取的是原来中间那一档：够看见，又不至于让整页跳起来。
    * 底色只有 tint 有——那是用户主动选的，不该是别的样式的副作用。
    */
-  const rules: Record<Settings['style'], string> = {
+  const rules: Record<Exclude<Settings['style'], 'color'>, string> = {
     dotted: decorate('2px', 70, 'dotted'),
     underline: decorate('1.5px', 62, 'solid'),
     tint: `background-color: ${wash(14)};`,

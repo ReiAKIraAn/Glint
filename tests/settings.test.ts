@@ -22,6 +22,11 @@ test('存过的值不被默认值盖掉', () => {
   assert.equal(out.enabled, false);
 });
 
+test('新增的 style: "color" 能够正确保留且不被默认值覆盖', () => {
+  const out = withDefaults({ style: 'color' });
+  assert.equal(out.style, 'color');
+});
+
 test('缺字段的旧对象也能补齐，不会留 undefined', () => {
   const out = withDefaults({ level: 4 });
   assert.equal(out.effort, DEFAULT_SETTINGS.effort);

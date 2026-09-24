@@ -264,7 +264,7 @@ export interface Settings {
   markUnknown: boolean;
   /** 同一个词在一页里只标第一次 */
   oncePerPage: boolean;
-  style: 'dotted' | 'tint' | 'underline';
+  style: 'dotted' | 'tint' | 'underline' | 'color';
   /**
    * 「我已经通过了 X」。该考纲及以下的词不再标注。
    *

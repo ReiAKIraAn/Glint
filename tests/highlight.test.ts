@@ -82,6 +82,9 @@ test('applyStyle 正常时通过 document.adoptedStyleSheets 注入规则', () =
   applyStyle('underline');
   assert.strictEqual(document.adoptedStyleSheets.length, 1, '同一实例更新规则，不应重复追加样式表');
 
+  applyStyle('color');
+  assert.strictEqual(document.adoptedStyleSheets.length, 1, '切换至 color 样式时保持单一样式表');
+
   removeStyle();
   assert.strictEqual(document.adoptedStyleSheets.length, 0, 'removeStyle 必须清理 adoptedStyleSheets');
 });
