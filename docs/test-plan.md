@@ -390,3 +390,105 @@ M5-W8 Overall — PASS WITH KNOWN LIMITATION
 - **Known Limitations**:
   1. **WebKit Service Worker 慢流生命周期**: 极端慢流/长空闲下 WebKit Service Worker 生命周期行为保持为 `UNVERIFIED`，已通过应用层 60s 硬超时兜底。
   2. **Safari TP 版本状态**: 实测环境为 STP Release 253 (WebKit 22626.1.8.19.2)；该版本是否为 Apple 当前发布的最新 STP 版本保持为 `UNVERIFIED`。
+
+---
+
+### 16. Milestone 5 Workstream 5 动态网页扫描韧性硬化与全量验证核验 (M5-W5 Dynamic Web Robustness & Acceptance)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM (343/343 PASS)*<br>
+*实机目标环境：macOS 27.2 (Build 26B5091g) / Safari Technology Preview Release 253 (CFBundleVersion 22626.1.8.19.2, WebKit 22626.1.8.19.2)*
+
+#### 1. 架构覆盖面与证据分类总览 (Architecture Coverage & Evidence Matrix)
+
+| 架构切面 / 场景 | 核心断言与覆盖范围 | 证据类型 | 判定 |
+| :--- | :--- | :---: | :---: |
+| **RISK-01 零生词页面重扫防护** | `hasRunInitialScan` 显式守卫，初次扫描 0 生词后增量变更严格走增量扫描，零无谓整页重扫 | Automated + Observed | ✅ PASS |
+| **RISK-03 祖先/后代包含剪枝** | `pruneContainedNodes` 剪枝算法，过滤已被祖先覆盖的后代元素及 `dirtyTextNodes`，杜绝重复扫描与重复 token | Automated + Observed | ✅ PASS |
+| **RISK-02 突发突变全量回退** | `records.length > 250` 触发安全全量回退；功能行为稳定，但大批量突发存在较重 TreeWalker 耗时 | Automated + Measured | ⏸️ **DEFERRED** |
+| **SPA 路由重置** | URL/Title 路由切换触发状态完全重置并重新初始扫描 | Automated + Real Safari | ✅ PASS |
+| **连续动态增量追加** | 无限滚动/列表追加增量识别新增词元，不影响现有已发现词元 | Automated + Real Safari | ✅ PASS |
+| **DOM 移除与高亮清理** | 节点移除后对应词元安全清理或废弃，不产生悬挂高亮或卡片漂移 | Automated + Real Safari | ✅ PASS |
+| **非文本属性变更过滤** | class/style/id 等非文本属性变更不触发无谓词元重算 | Automated | ✅ PASS |
+| **防抖批处理** | 50ms 防抖合并连续突变，避免频繁重算 | Automated | ✅ PASS |
+| **超大 DOM 极端压力** | 10,000 节点 ~88ms；50,000 节点深层树安全遍历完成，无堆栈溢出 | Benchmark / Automated | ✅ PASS |
+| **30 轮循环生命周期** | 连续 30 轮 SPA 路由切换与增量追加，未观察到 token/highlight/card 状态单调递增 | Automated / Stress | ✅ PASS |
+| **Shadow DOM / iframe 边界** | 严格保留开放/封闭 Shadow DOM 与 cross-origin iframe 安全边界，不非法穿透 | Real Safari + Static | ✅ PASS |
+| **可交互元素安全排除** | `input`, `textarea`, `select`, `[contenteditable]` 等严格排除，不干扰用户输入 | Real Safari + Automated | ✅ PASS |
+| **Long Task 时间线追踪** | 真实 Safari 下连续毫秒级 Long Task 追踪数据（依赖 Safari Web Inspector Timeline 手动导出） | Safari Profiling | ⚠️ **UNVERIFIED** |
+| **JSC 堆内存与 GC 回收证明** | JavaScriptCore 底层堆快照及 Garbage Collection 绝对回收证明 | Safari Memory Profiler | ⚠️ **UNVERIFIED** |
+| **Safari TP 最新版本状态** | 实测环境为 STP Release 253；该版本是否为 Apple 当前发布的最新 STP 版本保持未核实 | Environment audit | ⚠️ **UNVERIFIED** |
+
+#### 2. 动态扫描测试矩阵 (DW-01 至 DW-15)
+
+| 用例 ID | 测试项名称 | 验证行为与预期断言 | 证据类型 | 判定 |
+| :--- | :--- | :--- | :---: | :---: |
+| **DW-01** | SPA 路由导航重置 | 路由变更后清理旧词元并重新扫描新页面 | Automated | ✅ PASS |
+| **DW-02** | 连续增量追加 | 动态列表追加新子节点，仅增量扫描新节点且无重复词元 | Automated | ✅ PASS |
+| **DW-03** | 嵌套祖先后代剪枝 | 包含父子关系的新增节点被修剪为仅保留顶层祖先根节点 | Automated | ✅ PASS |
+| **DW-04** | 包含文本节点剪枝 | `dirtyTextNodes` 位于新增元素内部时自动修剪 | Automated | ✅ PASS |
+| **DW-05** | 属性突变忽略 | 仅修改 class / style 等属性不触发扫描 | Automated | ✅ PASS |
+| **DW-06** | 快速突变防抖 | 50ms 内多次突变合并为单次扫描 | Automated | ✅ PASS |
+| **DW-07** | 节点移除清理 | 删除包含生词的节点后，不残留悬挂引用 | Automated | ✅ PASS |
+| **DW-08** | 活动卡片不被增量扫描销毁 | 增量扫描不重置/销毁正在展示的悬浮卡片 | Automated | ✅ PASS |
+| **DW-09** | 滚动与无限加载 | 模拟快速滚动与无限内容注入，扫描平稳防抖执行 | Automated | ✅ PASS |
+| **DW-10** | 10k 节点大 DOM 压力 | 10,000 节点 DOM 树扫描耗时 < 300ms（实测 ~88ms） | Automated / Benchmark | ✅ PASS |
+| **DW-11** | 50k 节点深度 DOM 压力 | 50,000 节点超深 DOM 树遍历完成无堆栈溢出 | Automated / Benchmark | ✅ PASS |
+| **DW-12** | 突变风暴回退触发 | >250 条突变触发全量回退，状态完整一致 | Automated | ✅ PASS |
+| **DW-13** | 30 轮 SPA 路由循环稳定性 | 连续 30 轮路由切换，状态正常重置，无观察到的状态泄露 | Automated / Stress | ✅ PASS |
+| **DW-14** | 30 轮增删循环稳定性 | 连续 30 轮动态节点挂载与卸载，词元计数精准收敛 | Automated / Stress | ✅ PASS |
+| **DW-15** | 30 轮嵌套子树循环稳定性 | 连续 30 轮嵌套祖先后代增删，剪枝逻辑幂等无异常 | Automated / Stress | ✅ PASS |
+
+#### 3. RISK 专项验证矩阵 (RISK-01 / 02 / 03)
+
+| 场景 ID | 场景描述 | 行为与断言 | 证据类型 | 判定 |
+| :--- | :--- | :--- | :---: | :---: |
+| **RISK-01-A** | 初始空页面 + 增量追加含生词节点 | 增量追加后走增量扫描，`run()` 零调用，`tokens.length` 准确更新 | Automated | ✅ PASS |
+| **RISK-01-B** | 初始空页面 + 增量追加无生词节点 | 增量追加后走增量扫描，`run()` 零调用，`tokens.length === 0` | Automated | ✅ PASS |
+| **RISK-01-C** | 初始有词页面 + 增量追加含生词节点 | 正常增量扫描，`run()` 零调用，新词元平滑追加 | Automated | ✅ PASS |
+| **RISK-01-D** | 初始空页面 + 路由切换到含生词页面 | 路由切换触发显式 reset，新页面正确触发初次扫描 | Automated | ✅ PASS |
+| **RISK-03-A** | 父节点与直接子节点同时在 addedNodes | 仅父节点保留在扫描根节点列表，子节点被剪枝 | Automated | ✅ PASS |
+| **RISK-03-B** | 祖父节点与孙子节点同时在 addedNodes | 仅祖父节点保留在扫描根节点列表，孙子节点被剪枝 | Automated | ✅ PASS |
+| **RISK-03-C** | 兄弟节点同时在 addedNodes | 兄弟节点彼此无包含关系，全部保留在根节点列表 | Automated | ✅ PASS |
+| **RISK-03-D** | 新增元素包含 dirtyTextNode | dirtyTextNode 被修剪，避免重复扫描与分词 | Automated | ✅ PASS |
+| **RISK-03-E** | 独立 dirtyTextNode 不在新增元素内 | 独立 dirtyTextNode 正常保留并执行扫描 | Automated | ✅ PASS |
+| **RISK-02-A** | 250 条以下增量突变性能梯度 | 1: 48ms, 10: 54ms, 50: 89ms, 100: 179ms, 250: 566ms | Measured / Benchmark | ✅ PASS |
+| **RISK-02-B** | 251 条突变风暴全量回退耗时 | 251 条突变触发全量回退，耗时 ~907ms | Measured / Benchmark | ⚠️ OBSERVED |
+| **RISK-02-C** | 500 条突变风暴全量回退耗时 | 500 条突变触发全量回退，耗时 ~2290ms | Measured / Benchmark | ⚠️ OBSERVED |
+| **RISK-02-D** | 1000 条突变风暴全量回退耗时 | 1000 条突变触发全量回退，耗时 ~7086ms | Measured / Benchmark | ⚠️ OBSERVED |
+
+#### 4. 全链路架构与回归核查矩阵 (REG-01 至 REG-15)
+
+| 回归项 ID | 回归切面 | 验证内容与核心证据 | 证据类型 | 判定 |
+| :--- | :--- | :--- | :---: | :---: |
+| **REG-01** | 初次扫描生词识别 | 页面加载完成平稳执行初次扫描，生词正确识别并建立索引 | Real Safari + Automated | ✅ PASS |
+| **REG-02** | 增量追加平滑挂载 | 动态增量节点注入后增量扫描追加词元，页面无闪烁 | Real Safari + Automated | ✅ PASS |
+| **REG-03** | SPA 路由导航重置 | 虚拟路由切换后词元全部清理，新页面重新扫描并渲染 | Real Safari + Automated | ✅ PASS |
+| **REG-04** | 悬停展示本地卡片 | 悬停生词秒级展现 Shadow DOM 卡片，本地 5.7 万词离线字典驱动 | Real Safari + Automated | ✅ PASS |
+| **REG-05** | 本地离线发音朗读 | 点击发音小喇叭正常调用本地 SpeechSynthesis，零网络请求 | Real Safari + Automated | ✅ PASS |
+| **REG-06** | 显式点击触发 AI | 点击“✨ AI 解释”发起流式网络请求，卡片进入 loading 态 | Real Safari + Automated | ✅ PASS |
+| **REG-07** | AI 流式推流平滑渲染 | SSE 流式切片平滑由 Background 推向前台，卡片原生 textContent 渲染 | Real Safari + Automated | ✅ PASS |
+| **REG-08** | 用户主动取消推流 | 点击“取消”即刻下发 AI_ABORT，reader 释放，卡片退出 loading | Real Safari + Automated | ✅ PASS |
+| **REG-09** | 释义结果缓存命中 | 再次点击已解释生词直接命中 local:explanations，跳过网络调用 | Real Safari + Automated | ✅ PASS |
+| **REG-10** | 动态增量下卡片存活 | 卡片展示期间发生后台增量扫描，卡片不关闭、不抖动、不重新挂载 | Real Safari + Automated | ✅ PASS |
+| **REG-11** | 节点移除卡片清理 | 正在展示卡片的宿主节点被从 DOM 移除时，卡片安全收起不报错 | Real Safari + Automated | ✅ PASS |
+| **REG-12** | 输入控件严格排除 | input / textarea / contenteditable 内容严格不扫描不打扰 | Real Safari + Automated | ✅ PASS |
+| **REG-13** | Shadow DOM 边界隔离 | open/closed Shadow DOM 边界严格尊重，不非法注入与破坏宿主封装 | Real Safari + Static | ✅ PASS |
+| **REG-14** | iframe 跨域边界隔离 | cross-origin iframe 不非法穿透，遵循安全上下文沙箱 | Real Safari + Static | ✅ PASS |
+| **REG-15** | 内存循环泄露防护 | 30 轮循环生命周期测试未观察到 token/card 状态单调递增 | Automated / Stress | ✅ PASS |
+
+#### 5. 里程碑状态与已知边界 (Milestone Parity & Known Limitations)
+
+```text
+M5-W5 Step 1 — PASS WITH OBSERVATIONS
+M5-W5 Step 2 — PASS WITH DESIGNATED FIXES
+M5-W5 Step 3 — PASS WITH KNOWN LIMITATIONS
+M5-W5 Final Milestone Status — PASS WITH KNOWN LIMITATIONS
+```
+
+- **Fixed Issues**:
+  - `RISK-01`: 零生词页面增量突变导致无谓整页重扫已彻底修复（引入 `hasRunInitialScan` 显式守卫）。
+  - `RISK-03`: 祖先与后代节点同时突变导致重复扫描与词元重叠已彻底修复（`pruneContainedNodes` 剪枝 + 文本节点过滤）。
+- **Deferred Issues & Known Limitations**:
+  - `RISK-02`: `records.length > 250` 的全量回退策略维持为 `DEFERRED`。当前回退机制在极端压力下确保了数据一致性，但大批量突变（如 251/500/1000 records）会引发较重 TreeWalker 耗时（~900ms 至 ~7000ms）。不宣称 250 阈值是最优解，亦不宣称其能杜绝 Long Task。
+  - **Long Task Profiling**: 缺少真实 Safari 下毫秒级 Long Task 连续时间线追踪数据，标记为 `UNVERIFIED`。
+  - **JSC 堆内存与 GC 回收**: JavaScriptCore 底层堆快照及 Garbage Collection 绝对回收证明无法在自动化环境中证明，标记为 `UNVERIFIED`。
+  - **Safari TP 版本状态**: 实测环境为 STP Release 253 (WebKit 22626.1.8.19.2)；该版本是否为 Apple 当前发布的最新 STP 版本保持为 `UNVERIFIED`。

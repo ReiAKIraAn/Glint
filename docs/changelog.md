@@ -6,6 +6,22 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 16: Milestone 5 / Workstream 5 — 动态网页扫描韧性硬化与全量验证闭环 (Dynamic Web Robustness & Acceptance) - 2026-09-25
+- **扫描器动态韧性硬化与正确性修复 (`src/entrypoints/content.ts`, `src/lib/scan.ts`)**:
+  - **RISK-01 修复（零生词页面非必要全量重扫）**: 废弃脆弱的 `tokens.length === 0` 作为“是否已初次扫描”的判定条件，引入显式生命周期标志 `hasRunInitialScan`；确保初次页面若无生词，后续发生 DOM 增量变更时严格执行增量扫描，绝不退化为整页全量重扫。
+  - **RISK-03 修复（重叠祖先/后代节点导致重复扫描与词元重叠）**: 在 `src/lib/scan.ts` 中新增 `pruneContainedNodes` 祖先/后代包含剪枝算法，并在 `src/entrypoints/content.ts` 收集 `dirtyTextNodes` 时自动修剪已被新增根节点覆盖的文本节点；彻底杜绝嵌套 DOM 增量变更下的重复扫描与重复 token 生成。
+- **RISK-02 评估与策略决定 (DEFERRED)**:
+  - 对 `records.length > 250` 的全量回退阈值进行了实机多梯度压力评测（251: 907ms, 500: 2290ms, 1000: 7086ms）；当前策略在测试场景下功能行为稳定，但大批量突变存在较重 TreeWalker 耗时。维持策略 DEFERRED，不盲目调整阈值，不宣称 250 为最优解或能够杜绝 Long Task。
+- **专项自动化回归套件与覆盖扩充 (`tests/content-scanner.test.ts`, 343/343 PASS)**:
+  - 新增 DW-01 至 DW-15 全场景测试，涵盖 SPA 路由重置、增量追加、祖先后代嵌套修剪、属性变更过滤、短时间防抖合并、DOM 移除清理、卡片生命周期保护、连续快速滚动、超大 DOM 极端压力（10,000 / 50,000 节点深层树遍历）与 30 轮循环生命周期无异常。
+  - 全量自动化测试用例由 311 项扩充至 343 项，100% 保持 PASS。
+- **真实 Safari Technology Preview 实机全量回归与证据分类**:
+  - 实机验证覆盖 macOS 27.2 (Build 26B5091g) / Safari Technology Preview Release 253 (WebKit 22626.1.8.19.2)。
+  - REG-01 至 REG-15 全部核验通过（涵盖初次扫描、增量追加、SPA 路由导航、悬停卡片保持、TTS 朗读、AI 流式推流、用户取消、缓存命中、输入框/textarea/Shadow DOM/iframe 边界安全等）。
+  - 严格规范证据分类，清晰标注 VERIFIED、OBSERVED 与 UNVERIFIED 项（将 Long Task 连续时间线追踪、JavaScriptCore 堆快照/GC 绝对回收证明及 Latest STP 状态明确列为 UNVERIFIED）。
+- **里程碑状态与已知边界**:
+  - **M5-W5 最终状态**: `PASS WITH KNOWN LIMITATIONS`。
+
 ### Phase 15: Milestone 5 / Workstream 8 — Provider Adapter 架构解耦与架构验收 (Provider Adapter Architecture & Acceptance) - 2026-09-24
 - **Provider Adapter Architecture 架构解耦与统一抽象**:
   - **Anthropic-specific network logic isolated in AnthropicAdapter**: 将原 `fetchProviderStream` 中高度绑定的 Anthropic 网络请求、Header 组装、Payload 组织、SSE 事件流解析与 4,000 字符限制完整收敛至 `AnthropicAdapter`。
