@@ -6,6 +6,22 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 8: Milestone 4 / Step 1 — Anthropic SSE 流式网络层实现 (Provider Stream Layer) - 2026-09-24
+- **Anthropic SSE 纯网络层抽象 (`src/lib/provider-network.ts`)**:
+  - 新增 `fetchProviderStream(settings, apiKey, payload, signal, onChunk, options)`：实现最小、纯粹、无 DOM / UI / Port 依赖的底层流式请求函数。
+  - 严格采用官方规范 Header 鉴权 (`x-api-key`, `anthropic-version: 2023-06-01`, `anthropic-dangerous-direct-browser-access: true`)，URL Query 与 Request Body 零 Key 泄露。
+  - 自研增量轻量 SSE 解析器：支持单个 chunk 多事件、单个事件跨多 chunk、行缓冲、空行分隔、无换行尾部兼容及 UTF-8 多字节拆分 (`TextDecoder({ stream: true })`)。
+  - 仅向回调派发真正的 `content_block_delta` 文本增量；安全忽略非文本元数据与生命周期事件；捕获 `event: error` 协议报错。
+  - 落地硬性 4,000 字符限制 (`MAX_RESPONSE_CHARS`)：超限仅分发剩余字符，立即 abort 并抛出 `ProviderResponseTooLargeError`。
+  - 完整的错误类型体系：`ProviderHttpError` (覆盖 400/401/403/408/429/500/502/503)、`ProviderNetworkError`、`ProviderTimeoutError`、`ProviderAbortError`、`ProviderProtocolError`、`ProviderResponseTooLargeError`。
+- **Step 1 自动化测试套件 (`tests/ai-stream.test.ts`)**:
+  - 新增 30 项专项覆盖：包含单/多 delta、跨 chunk、UTF-8 字符拆分、未知事件忽略、畸形 JSON、HTTP 状态码、双向 Abort、60s Timeout 清理、4000 字符超限截断、URL/Error/日志零 Key 泄露。
+  - 自动化回归测试用例由 119 项增长至 149 项，全部通过 (Node.js 1120ms)。
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 正常打包。
+- **Safari 验证状态明确界定**:
+  - 底层网络层 Node.js 自动化测试已通过 (`AUTOMATED VERIFIED`)。
+  - 真实 Safari Technology Preview 实机端到端流式请求与 Service Worker 存活机制保持为 `SAFARI TP UNVERIFIED`，保留至后续 Step 联调完成后实测。
+
 ### Phase 7: Milestone 4 — AI 语境释义架构设计与协议冻结审查 (Architecture & Protocol Freeze Review) - 2026-09-24
 - **产品决策正式冻结 (Frozen Product Decisions - 方案 B)**:
   - 确认采用**卡片内点击“AI 解释”按钮**作为唯一触发路径；Hover 本身绝对零网络外发，本地词典秒级即时展示。

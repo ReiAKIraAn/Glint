@@ -334,6 +334,38 @@ Prompt 中引导模型以固定标号输出结构化释义：
 
 ---
 
-## 十二、审查总结与结论
+## 十二、Step 1 实现沉淀：Anthropic SSE 网络层 (Provider Stream Layer)
 
-本协议冻结审查确立了极其克制、安全、可预测的第一版 AI 语境释义架构。在获得用户指令前，代码库保持未修改状态。
+在 Milestone 4 / Step 1 中，已完成纯网络层 `fetchProviderStream` 的实现与自动化验证：
+
+1. **网络层职责定位**:
+   - 纯底层 HTTPS + SSE 流式解析抽象，零 DOM / Card / Port / Storage 依赖。
+   - API Key 由调用者显式传入，`AbortSignal` 由调用者显式控制，网络层每解析出一段有效文本增量立即调用 `onChunk(delta)`。
+2. **Anthropic SSE 官方协议对齐**:
+   - 端点：`POST https://api.anthropic.com/v1/messages`。
+   - 鉴权头：`x-api-key: [KEY]`、`anthropic-version: 2023-06-01`、`anthropic-dangerous-direct-browser-access: true`。
+   - 事件分发：精准监听并提取 `content_block_delta`（`delta.type === 'text_delta'`）中的 `delta.text`。
+   - 忽略非文本生命周期事件：`message_start`、`content_block_start`、`ping`、`content_block_stop`、`message_delta`、`message_stop`。
+   - 协议异常：服务返回 `event: error` 时提取错误并转为 `ProviderProtocolError`。
+3. **安全与脱敏边界 (Security Boundary)**:
+   - API Key 仅存在于 Request Header，URL Query、Request Body、Error Message、测试日志、返回值均零 Key。
+   - 所有来自远端的数据与异常经过 `redactSecrets` 脱敏。
+4. **双向 Abort 与 Timeout 协同控制**:
+   - 外部调用者传入的 `AbortSignal` 与内部超时 `AbortController` 绑定。
+   - 外部调用者随时 `.abort()`，底层 `fetch` 与 `reader.read()` 立即中断，并严格保证**abort 之后绝不再调用 `onChunk`**。
+   - 默认应用层 60 秒超时，计时器在 `finally` 块中 100% 清理，无长期挂起 timer。
+5. **硬性 4,000 字符限制 (Response Size Limit)**:
+   - 以 JavaScript 字符串 `.length` 累计统计。
+   - 当接收文本超出 4,000 字符时，**仅分发剩余可用字符**，立即调用 `controller.abort()` 掐断底层流，并抛出 `ProviderResponseTooLargeError`。
+6. **错误类型体系 (Error Taxonomy)**:
+   - `ProviderError` (基类)
+   - `ProviderHttpError` (携带 `status` 状态码，安全处理 400/401/403/408/429/500/502/503)
+   - `ProviderNetworkError` (DNS 失败、离线、网络中断)
+   - `ProviderTimeoutError` (请求超时)
+   - `ProviderAbortError` (调用者取消)
+   - `ProviderProtocolError` (格式损坏、畸形 JSON、空流、服务端流错误)
+   - `ProviderResponseTooLargeError` (超出 4000 字符硬限制)
+7. **为什么没有引入第三方 SSE Library**:
+   - 现代 Web 标准已原生支持 `fetch`、`ReadableStream` 与 `TextDecoder`。
+   - 自研轻量增量解析器仅约 80 行代码，完整处理了行缓冲、空行分隔、跨 chunk 拆分、单 chunk 多事件以及 UTF-8 多字节拆分。
+   - 避免引入外部依赖（如 `eventsource`、`fetch-event-source` 等），确保 Safari 扩展体积最小、供应链绝对安全。

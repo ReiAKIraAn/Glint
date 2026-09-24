@@ -25,7 +25,7 @@
 | **高亮渲染与样式注入**| `tests/highlight.test.ts` | `CSS.highlights` 范围注册、`document.adoptedStyleSheets` 动态挂载、WebKit 隔离环境异常降级回退 `<style>` |
 | **悬浮定位与卡片生命周期**| `tests/hover-card.test.ts` | WebKit Element 边界解析、Token 词头/词中/词尾 hit-test、脱离 DOM 节点过滤、单例 DOM 复用、XSS 注入纯文本安全校验 |
 | **Provider 网络切片与凭据安全**| `tests/provider-network.test.ts` (M3) | Header 鉴权、URL/日志/报错/ContentScript 零泄露、单 Origin 权限申请/拒绝/已授权、HTTP/网络/超时/畸形响应五路径、Key 清除与撤销 |
-| **AI 语境流式协议与生命周期**| `tests/ai-stream.test.ts` (M4 规划) | SSE 流解析、Port 通信、分块拼接、Abort 取消、requestId 竞态防护、超时、XSS 与 Prompt 注入防御 |
+| **AI 语境流式网络层与 SSE 解析**| `tests/ai-stream.test.ts` (M4 Step 1) | 单/多 delta、跨 chunk、UTF-8 多字节截断、非文本事件过滤、畸形 JSON、HTTP 401/429/500、Abort/Timeout、4000 字符限制、URL/Error/日志零 Key 泄露 (30 项自动化用例全部 PASS) |
 
 ---
 
@@ -124,27 +124,32 @@
 
 #### Milestone 4 规划测试矩阵 (19 项专项覆盖)
 
+> [!NOTE]
+> **Step 1 当前完成状态说明**:
+> - **底层网络层自动化验证 (Automated Verified)**: 覆盖 SSE 解析、非文本事件过滤、畸形 JSON、HTTP 401/429/500/503、Abort/Timeout、4000 字符限制与 Key 安全的 30 项单元测试已全部通过 (`tests/ai-stream.test.ts` 30/30 PASS)。
+> - **Safari TP 实机流式验证 (Safari TP Required Later)**: 真实的浏览器端端到端流式请求、WebKit Service Worker 存活与挂起、慢流/停流实验、以及底层的 Abort TCP 释放，将在后续 Step 2/3 完成 Background Port 通道与 Card UI 对接后进行实机验收。
+
 | 序号 | 验证场景 | 预期测试行为 | 自动化 (Node / Happy-DOM) | Safari TP 实机验证 | 状态 |
 | :--- | :--- | :--- | :---: | :---: | :---: |
-| 1 | 点击卡片内 AI 按钮 | 卡片置为 loading，派发 `AI_START`，生成唯一自增 requestId | ✅ 支持 (Mock DOM) | ✅ 必须验证 | PLANNING |
-| 2 | 仅悬停 (Hover) 生词 | 触发并展示本地词典，**绝不产生任何 AI IPC 消息与网络请求** | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 3 | 正常 SSE Stream 响应 | 完整接收多块流式片段，解析 text-delta，最终收到 `AI_DONE` | ✅ 支持 (Mock SSE) | ✅ 必须验证 | PLANNING |
-| 4 | 多 Chunk 流式组装 | 多个连续 chunk 顺序无错位、字符拼接完整无遗漏 | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 5 | 空流响应 (Empty Stream)| 服务端返回空流或零 chunk，优雅处理并提示无内容 | ✅ 支持 | - | PLANNING |
-| 6 | 畸形 SSE 流 (Malformed)| 服务端返回非标准数据行或破损 JSON，捕获异常不崩溃 | ✅ 支持 | - | PLANNING |
-| 7 | HTTP 错误状态码 (401/429/500)| 正确捕获 HTTP 报错，UI 显示友好脱敏提示，零 Key 回显 | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 8 | 网络离线/DNS故障 (TypeError) | 捕获断网错误，UI 显示网络异常状态 | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 9 | 单次请求超时 (Timeout)| 超过预设超时阈值，`AbortSignal` 触发并中止请求 | ✅ 支持 | - | PLANNING |
-| 10 | 用户主动取消 (Explicit Abort)| 点击取消按钮，发送 `AI_ABORT`，Background 掐断请求 | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 11 | 卡片移出关闭取消 | 鼠标离开卡片触发 hide，自动触发 abort 流程释放连接 | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 12 | Token A → Token B 切换 | 切换新词后，老请求即刻失效，卡片只展示新词内容 | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 13 | 迟到旧 Chunk 过滤 (Stale Drop)| 老请求的延迟 chunk 到达，因 requestId 不匹配被直接丢弃 | ✅ 支持 | - | PLANNING |
-| 14 | 按钮快速重复点击 (Debounce) | 快速多次点击按钮只触发一次有效 `AI_START` | ✅ 支持 | ✅ 必须验证 | PLANNING |
-| 15 | Content Script 断开/页面卸载 | 页面关闭或刷新触发 `port.onDisconnect`，后台 Worker 立即 abort | - | ✅ 必须实机验证 | PLANNING |
-| 16 | 响应字符超限保护 (Oversized) | 累计字符数超过 4,000 时，立即掐断连接，保留局部内容并显示截断提示 | ✅ 支持 | - | PLANNING |
-| 17 | 恶意网页注入上下文 (Prompt Injection)| 网页文本包含越狱/破坏指令，仅作为语言样本，模型仍稳定解释生词 | ✅ 支持 | ✅ 必须实机验证 | PLANNING |
-| 18 | 恶意 AI 响应 (XSS Payload)| AI 输出 `<script>` 或恶意 HTML，Shadow DOM 纯文本安全转义呈现 | ✅ 支持 | ✅ 必须实机验证 | PLANNING |
-| 19 | API Key 零泄露全链路回归 | 检查所有 IPC payload、DOM、控制台输出、网络 URL 绝对不含 Key | ✅ 支持 | ✅ 必须实机验证 | PLANNING |
+| 1 | 点击卡片内 AI 按钮 | 卡片置为 loading，派发 `AI_START`，生成唯一自增 requestId | ✅ 支持 (Mock DOM) | ✅ 必须验证 | Step 3 待接入 |
+| 2 | 仅悬停 (Hover) 生词 | 触发并展示本地词典，**绝不产生任何 AI IPC 消息与网络请求** | ✅ 支持 | ✅ 必须验证 | Step 3 待接入 |
+| 3 | 正常 SSE Stream 响应 | 完整接收多块流式片段，解析 text-delta，最终收到 `AI_DONE` | ✅ 支持 (3/30 已测) | ✅ 必须验证 | **Step 1 底层网络已 PASS** |
+| 4 | 多 Chunk 流式组装 | 多个连续 chunk 顺序无错位、字符拼接完整无遗漏 | ✅ 支持 (3/30 已测) | ✅ 必须验证 | **Step 1 底层网络已 PASS** |
+| 5 | 空流响应 (Empty Stream)| 服务端返回空流或零 chunk，优雅处理并提示无内容 | ✅ 支持 (3/30 已测) | - | **Step 1 底层网络已 PASS** |
+| 6 | 畸形 SSE 流 (Malformed)| 服务端返回非标准数据行或破损 JSON，捕获异常不崩溃 | ✅ 支持 (3/30 已测) | - | **Step 1 底层网络已 PASS** |
+| 7 | HTTP 错误状态码 (401/429/500)| 正确捕获 HTTP 报错，UI 显示友好脱敏提示，零 Key 回显 | ✅ 支持 (3/30 已测) | ✅ 必须验证 | **Step 1 底层网络已 PASS** |
+| 8 | 网络离线/DNS故障 (TypeError) | 捕获断网错误，UI 显示网络异常状态 | ✅ 支持 (3/30 已测) | ✅ 必须验证 | **Step 1 底层网络已 PASS** |
+| 9 | 单次请求超时 (Timeout)| 超过预设超时阈值，`AbortSignal` 触发并中止请求 | ✅ 支持 (3/30 已测) | - | **Step 1 底层网络已 PASS** |
+| 10 | 用户主动取消 (Explicit Abort)| 点击取消按钮，发送 `AI_ABORT`，Background 掐断请求 | ✅ 支持 (3/30 已测) | ✅ 必须验证 | **Step 1 底层网络已 PASS** |
+| 11 | 卡片移出关闭取消 | 鼠标离开卡片触发 hide，自动触发 abort 流程释放连接 | ✅ 支持 | ✅ 必须验证 | Step 2/3 待接入 |
+| 12 | Token A → Token B 切换 | 切换新词后，老请求即刻失效，卡片只展示新词内容 | ✅ 支持 | ✅ 必须验证 | Step 2/3 待接入 |
+| 13 | 迟到旧 Chunk 过滤 (Stale Drop)| 老请求的延迟 chunk 到达，因 requestId 不匹配被直接丢弃 | ✅ 支持 | - | Step 2 待接入 |
+| 14 | 按钮快速重复点击 (Debounce) | 快速多次点击按钮只触发一次有效 `AI_START` | ✅ 支持 | ✅ 必须验证 | Step 3 待接入 |
+| 15 | Content Script 断开/页面卸载 | 页面关闭或刷新触发 `port.onDisconnect`，后台 Worker 立即 abort | - | ✅ 必须实机验证 | Step 2 待接入 |
+| 16 | 响应字符超限保护 (Oversized) | 累计字符数超过 4,000 时，立即掐断连接，保留局部内容并显示截断提示 | ✅ 支持 (3/30 已测) | - | **Step 1 底层网络已 PASS** |
+| 17 | 恶意网页注入上下文 (Prompt Injection)| 网页文本包含越狱/破坏指令，仅作为语言样本，模型仍稳定解释生词 | ✅ 支持 (3/30 已测) | ✅ 必须实机验证 | **Step 1 底层网络已 PASS** |
+| 18 | 恶意 AI 响应 (XSS Payload)| AI 输出 `<script>` 或恶意 HTML，Shadow DOM 纯文本安全转义呈现 | ✅ 支持 (3/30 已测) | ✅ 必须实机验证 | **Step 1 底层网络已 PASS** |
+| 19 | API Key 零泄露全链路回归 | 检查所有 IPC payload、DOM、控制台输出、网络 URL 绝对不含 Key | ✅ 支持 (3/30 已测) | ✅ 必须实机验证 | **Step 1 底层网络已 PASS** |
 
 ### 7. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。
