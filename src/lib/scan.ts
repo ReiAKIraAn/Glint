@@ -184,6 +184,33 @@ export function scanTextNode(
 }
 
 /**
+ * 对一组新增节点进行祖先/后代包含性裁剪 (Containment Pruning)。
+ * 仅保留最小祖先根集合，剔除已被集合中其它祖先包含的子孙节点，
+ * 避免同一 DOM 子树被多次重复遍历。
+ */
+export function pruneContainedNodes(nodes: Iterable<Node>): Node[] {
+  const list: Node[] = [];
+  for (const node of nodes) {
+    if (!node || !node.isConnected) continue;
+    let isContained = false;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const existing = list[i]!;
+      if (existing === node || existing.contains(node)) {
+        isContained = true;
+        break;
+      }
+      if (node.contains(existing)) {
+        list.splice(i, 1);
+      }
+    }
+    if (!isContained) {
+      list.push(node);
+    }
+  }
+  return list;
+}
+
+/**
  * 增量扫描指定 DOM 子树，避开 OPAQUE_TAGS 和非英文节点。
  */
 export function scanSubtree(

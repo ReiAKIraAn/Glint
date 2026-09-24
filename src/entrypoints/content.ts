@@ -6,7 +6,7 @@ import {
   withDefaults,
 } from '@/lib/settings';
 import { getExplanation } from '@/lib/explanation-cache';
-import { collectCodeWords, scanSubtree, scanTextNode, sentenceAround, type Token } from '@/lib/scan';
+import { collectCodeWords, pruneContainedNodes, scanSubtree, scanTextNode, sentenceAround, type Token } from '@/lib/scan';
 import { applyStyle, clear, isSupported, paint, removeStyle } from '@/lib/highlight';
 import { HoverTracker } from '@/lib/hover';
 import { Card } from '@/lib/card';
@@ -152,6 +152,8 @@ export default defineContentScript({
       for (const t of tokens) seen.add(t.lemma);
     }
 
+    let hasRunInitialScan = false;
+
     function run() {
       if (
         !settings.enabled ||
@@ -170,6 +172,7 @@ export default defineContentScript({
       tokens = scanSubtree(document.body, settings, known, canExplain, codeWords, examWords, seen).slice(0, MAX_TOKENS);
       paint(tokens);
       hover.setTokens(tokens);
+      hasRunInitialScan = true;
       console.info(`[glint] Highlighted ${tokens.length} words (user level: ${settings.level}).`);
     }
 
@@ -215,8 +218,9 @@ export default defineContentScript({
         return;
       }
 
-      // 极端大幅度重构（如 SPA 路由整页切换，一次性扔进来上百条记录），退回全量重扫
-      if (records.length > 250 || tokens.length === 0) {
+      // 极端大幅度重构（如 SPA 路由整页切换，一次性扔进来上百条记录），退回全量重扫；
+      // 初始扫描未就绪时亦执行全量扫描
+      if (records.length > 250 || !hasRunInitialScan) {
         run();
         return;
       }
@@ -251,6 +255,16 @@ export default defineContentScript({
         codeWords = collectCodeWords(document.body);
       }
 
+      // 包含性裁剪：剔除已被集合中其它祖先包含的子孙节点，杜绝重复扫描同一子树
+      const roots = pruneContainedNodes(addedNodes);
+
+      // 若文本变动节点已被某个新增子树根节点包含，则交由子树统一扫描，避免重复
+      for (const textNode of dirtyTextNodes) {
+        if (roots.some((r) => r.contains(textNode))) {
+          dirtyTextNodes.delete(textNode);
+        }
+      }
+
       // 1. 剪除已脱离 DOM 树的旧 Token，以及文本已发生变动的 Text 节点中的旧 Token
       const prevLength = tokens.length;
       tokens = tokens.filter((t) => {
@@ -272,8 +286,8 @@ export default defineContentScript({
         }
       }
 
-      // 3. 增量扫描新增的 DOM 子树
-      for (const node of addedNodes) {
+      // 3. 增量扫描新增的 DOM 子树根节点
+      for (const node of roots) {
         if (!node.isConnected) continue;
         const newTokens = scanSubtree(node, settings, known, canExplain, codeWords, examWords, seen);
         if (newTokens.length) {

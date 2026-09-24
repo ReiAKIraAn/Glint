@@ -7,6 +7,7 @@ import {
   scanSubtree,
   scanTextNode,
   collectCodeWords,
+  pruneContainedNodes,
   ScannedToken,
   type Token,
   OWN_ELEMENT,
@@ -16,7 +17,7 @@ import { HoverTracker } from '../src/lib/hover';
 
 /**
  * ============================================================================
- * M5-W5: Dynamic Web Robustness Test Suite (DW-01 ~ DW-12)
+ * M5-W5: Dynamic Web Robustness Test Suite (DW-01 ~ DW-12, RISK01, RISK03, RISK02)
  *
  * 验证目标：
  * 验证现有 Safari-first 增量 DOM 扫描与 MutationObserver 流水线在
@@ -43,6 +44,7 @@ class DynamicWebRunner {
   observer?: MutationObserver;
   cardElement: HTMLElement;
   hover: HoverTracker;
+  hasRunInitialScan = false;
 
   // 遥测指标 (Metrics)
   metrics = {
@@ -105,6 +107,7 @@ class DynamicWebRunner {
     ).slice(0, 2500);
     this.paint();
     this.hover.setTokens(this.tokens);
+    this.hasRunInitialScan = true;
     this.metrics.initialScanDurationMs = performance.now() - t0;
     this.metrics.fullRescanCount++;
   }
@@ -119,8 +122,8 @@ class DynamicWebRunner {
     this.metrics.mutationProcessingCount++;
     this.metrics.totalMutationRecords += records.length;
 
-    // >250 阈值或 tokens 为空时退回全量重扫
-    if (records.length > 250 || this.tokens.length === 0) {
+    // >250 阈值或未完成初始扫描时退回全量重扫
+    if (records.length > 250 || !this.hasRunInitialScan) {
       this.run();
       this.metrics.lastProcessDurationMs = performance.now() - t0;
       return;
@@ -160,6 +163,16 @@ class DynamicWebRunner {
       this.codeWords = collectCodeWords(document.body);
     }
 
+    // 包含性裁剪：剔除已被集合中其它祖先包含的子孙节点，杜绝重复扫描同一子树
+    const roots = pruneContainedNodes(addedNodes);
+
+    // 若文本变动节点已被某个新增子树根节点包含，则交由子树统一扫描，避免重复
+    for (const textNode of dirtyTextNodes) {
+      if (roots.some((r) => r.contains(textNode))) {
+        dirtyTextNodes.delete(textNode);
+      }
+    }
+
     const prevLength = this.tokens.length;
     this.tokens = this.tokens.filter((t) => {
       const node = t.node;
@@ -190,7 +203,7 @@ class DynamicWebRunner {
       }
     }
 
-    for (const node of addedNodes) {
+    for (const node of roots) {
       if (!node.isConnected) continue;
       const newTokens = scanSubtree(
         node,
@@ -626,6 +639,407 @@ test('DW-12: Dynamic Page Framework Pattern — 真实复合场景：初始渲�
   assert.ok(runner.metrics.fullRescanCount >= 1);
   assert.ok(runner.metrics.incrementalScanCount >= 2);
   assert.ok(runner.tokens.every((t) => t.node?.isConnected));
+
+  runner.destroy();
+});
+
+/**
+ * ============================================================================
+ * M5-W5 Step 2: Targeted Dynamic Scanner Regression Suites
+ *
+ * 1. RISK-01: Zero-token Unnecessary Full Rescan Fix (RISK01-01 ~ RISK01-06)
+ * 2. RISK-03: Overlapping AddedNodes Containment Pruning Fix (RISK03-01 ~ RISK03-08)
+ * 3. RISK-02: Mutation Threshold Evaluation (RISK02-EVAL)
+ * ============================================================================
+ */
+
+test('RISK01-01: initial zero-token state — 页面无超纲生词时初始扫描得到 0 tokens 且 hasRunInitialScan 为 true', () => {
+  document.body.innerHTML = '<main><p>The cat is sleeping on the bed.</p></main>';
+  const runner = new DynamicWebRunner();
+  runner.init();
+
+  assert.equal(runner.tokens.length, 0, '低阶词汇不应产生生词 Token');
+  assert.equal(runner.hasRunInitialScan, true, '初始扫描已执行完成');
+  assert.equal(runner.metrics.fullRescanCount, 1, '仅执行一次首屏全量扫描');
+
+  runner.destroy();
+});
+
+test('RISK01-02: zero-token mutation stays incremental — 零 Token 页面后续微量变动不触发全量重扫，走增量分支', async () => {
+  const container = document.createElement('div');
+  container.innerHTML = '<p>The dog barked at the cat.</p>';
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+
+  // 插入简单文本节点，不包含生词
+  const p2 = document.createElement('p');
+  p2.textContent = 'A bird flew over the house.';
+  container.appendChild(p2);
+  await runner.flush();
+
+  assert.equal(runner.metrics.fullRescanCount, 1, '零 Token 状态下微量更新严禁退回全量重扫');
+  assert.equal(runner.metrics.incrementalScanCount, 1, '必须走增量扫描流水线');
+  assert.equal(runner.tokens.length, 0);
+
+  runner.destroy();
+});
+
+test('RISK01-03: zero-token inserted vocabulary detected — 零 Token 页面增量插入生词被正确识别并高亮，无需全量重扫', async () => {
+  const container = document.createElement('div');
+  container.innerHTML = '<p>Simple plain text without difficult words.</p>';
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+
+  // 插入包含高等级生词 (strata, accretes) 的元素
+  const article = document.createElement('article');
+  article.innerHTML = '<p>Sediment accretes in strata along the coastline.</p>';
+  container.appendChild(article);
+  await runner.flush();
+
+  assert.equal(runner.metrics.fullRescanCount, 1, '新增词汇必须由增量扫描处理，不得触发全量扫描');
+  assert.equal(runner.metrics.incrementalScanCount, 1);
+  assert.ok(runner.tokens.length >= 2, `增量生词被正确提取 (实际: ${runner.tokens.length})`);
+  assert.ok(runner.tokens.some((t) => t.surface === 'strata'));
+  assert.ok(runner.tokens.some((t) => t.surface === 'accretes'));
+
+  // 验证高亮正常绘制
+  const mark = highlightMap.get('glint-mark');
+  assert.ok(mark && mark.ranges.length === runner.tokens.length);
+
+  runner.destroy();
+});
+
+test('RISK01-04: token population returns after zero state — 经历“0词 -> 有词 -> 0词 -> 有词”多次波动始终保持增量', async () => {
+  const container = document.createElement('div');
+  container.innerHTML = '<p>The cat is sleeping on the bed.</p>';
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+  assert.equal(runner.tokens.length, 0);
+
+  // 1. 插入生词
+  const item1 = document.createElement('p');
+  item1.textContent = 'The tide receded slowly.';
+  container.appendChild(item1);
+  await runner.flush();
+  assert.equal(runner.tokens.length, 1);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+  assert.equal(runner.metrics.incrementalScanCount, 1);
+
+  // 2. 移除生词，归零
+  item1.remove();
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+  assert.equal(runner.metrics.incrementalScanCount, 2);
+
+  // 3. 再次插入新生词
+  const item2 = document.createElement('p');
+  item2.textContent = 'Volcanic heat desiccated the forest.';
+  container.appendChild(item2);
+  await runner.flush();
+  assert.ok(runner.tokens.some((t) => t.surface === 'desiccated'));
+  assert.equal(runner.metrics.fullRescanCount, 1, '全程未发生全量重扫');
+  assert.equal(runner.metrics.incrementalScanCount, 3);
+
+  runner.destroy();
+});
+
+test('RISK01-05: all tokens removed does not trigger full scan — 节点移除导致全部 Token 清空后，后续变动仍保持增量', async () => {
+  const container = document.createElement('div');
+  const target = document.createElement('p');
+  target.textContent = 'The tide receded.';
+  container.appendChild(target);
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+  assert.equal(runner.tokens.length, 1);
+
+  // 移除目标节点，Token 降为 0
+  target.remove();
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+  assert.equal(runner.metrics.incrementalScanCount, 1);
+
+  // 再次变动：插入普通文字
+  const simple = document.createElement('p');
+  simple.textContent = 'A sunny day in the town.';
+  container.appendChild(simple);
+  await runner.flush();
+
+  assert.equal(runner.metrics.fullRescanCount, 1, 'Token 归零后的后续变动绝不退化为全量扫描');
+  assert.equal(runner.metrics.incrementalScanCount, 2);
+
+  runner.destroy();
+});
+
+test('RISK01-06: >250 mutations still trigger fallback — 零 Token 页面在发生超限 (>250) 突变时依然安全回退全量重扫', async () => {
+  const container = document.createElement('div');
+  container.innerHTML = '<p>The cat is sleeping on the bed.</p>';
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+
+  // 注入 260 条 mutation 记录
+  for (let i = 0; i < 260; i++) {
+    const s = document.createElement('span');
+    s.textContent = `word-${i} `;
+    container.appendChild(s);
+  }
+  await runner.flush();
+
+  assert.equal(runner.metrics.fullRescanCount, 2, 'records.length > 250 时必须如预期触发安全自适应回退全量重扫');
+
+  runner.destroy();
+});
+
+test('RISK03-01: pruneContainedNodes parent-child pruning — 父子节点同时传入时仅保留父节点', () => {
+  const parent = document.createElement('div');
+  const child = document.createElement('p');
+  parent.appendChild(child);
+  document.body.appendChild(parent);
+
+  // 正序: [parent, child]
+  const res1 = pruneContainedNodes([parent, child]);
+  assert.equal(res1.length, 1);
+  assert.equal(res1[0], parent);
+
+  // 逆序: [child, parent]
+  const res2 = pruneContainedNodes([child, parent]);
+  assert.equal(res2.length, 1);
+  assert.equal(res2[0], parent);
+
+  parent.remove();
+});
+
+test('RISK03-02: pruneContainedNodes parent-grandchild pruning — 祖父与孙节点同时传入时裁剪孙节点', () => {
+  const root = document.createElement('div');
+  const mid = document.createElement('section');
+  const leaf = document.createElement('span');
+  root.appendChild(mid);
+  mid.appendChild(leaf);
+  document.body.appendChild(root);
+
+  const res1 = pruneContainedNodes([root, leaf]);
+  assert.equal(res1.length, 1);
+  assert.equal(res1[0], root);
+
+  const res2 = pruneContainedNodes([leaf, root]);
+  assert.equal(res2.length, 1);
+  assert.equal(res2[0], root);
+
+  root.remove();
+});
+
+test('RISK03-03: pruneContainedNodes child-grandchild pruning — 中间层与后代传入时仅保留中间层', () => {
+  const root = document.createElement('div');
+  const mid = document.createElement('article');
+  const leaf = document.createElement('b');
+  root.appendChild(mid);
+  mid.appendChild(leaf);
+  document.body.appendChild(root);
+
+  const res1 = pruneContainedNodes([mid, leaf]);
+  assert.equal(res1.length, 1);
+  assert.equal(res1[0], mid);
+
+  const res2 = pruneContainedNodes([leaf, mid]);
+  assert.equal(res2.length, 1);
+  assert.equal(res2[0], mid);
+
+  root.remove();
+});
+
+test('RISK03-04: pruneContainedNodes sibling preservation — 兄弟节点互不包含，必须全部完整保留', () => {
+  const parent = document.createElement('div');
+  const sib1 = document.createElement('p');
+  const sib2 = document.createElement('p');
+  const sib3 = document.createElement('p');
+  parent.appendChild(sib1);
+  parent.appendChild(sib2);
+  parent.appendChild(sib3);
+  document.body.appendChild(parent);
+
+  const res = pruneContainedNodes([sib1, sib2, sib3]);
+  assert.equal(res.length, 3);
+  assert.ok(res.includes(sib1));
+  assert.ok(res.includes(sib2));
+  assert.ok(res.includes(sib3));
+
+  parent.remove();
+});
+
+test('RISK03-05: pruneContainedNodes duplicate node dedup — 相同节点被多次传入时自动去重', () => {
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+
+  const res = pruneContainedNodes([el, el, el]);
+  assert.equal(res.length, 1);
+  assert.equal(res[0], el);
+
+  el.remove();
+});
+
+test('RISK03-06: pruneContainedNodes disconnected node handling — 未挂载或已脱离 DOM 树的节点自动过滤', () => {
+  const attached = document.createElement('div');
+  document.body.appendChild(attached);
+  const detached = document.createElement('div');
+
+  const res = pruneContainedNodes([attached, detached]);
+  assert.equal(res.length, 1);
+  assert.equal(res[0], attached);
+
+  const resEmpty = pruneContainedNodes([detached]);
+  assert.equal(resEmpty.length, 0);
+
+  attached.remove();
+});
+
+test('RISK03-07: opaque subtree handling — 包含 OPAQUE 节点的父子裁剪与跳过验证', () => {
+  const container = document.createElement('div');
+  const pre = document.createElement('pre');
+  const code = document.createElement('code');
+  code.textContent = 'sediment accretes in code block';
+  pre.appendChild(code);
+  container.appendChild(pre);
+  document.body.appendChild(container);
+
+  // 裁剪测试：传入 container 和 code，仅保留 container
+  const roots = pruneContainedNodes([container, code]);
+  assert.equal(roots.length, 1);
+  assert.equal(roots[0], container);
+
+  // 扫描测试：scanSubtree 必须遵守 OPAQUE_TAGS 避开 pre/code
+  const tokens = scanSubtree(
+    container,
+    DEFAULT_SETTINGS,
+    new Set(),
+    true,
+    new Set(),
+    undefined,
+    new Set(),
+  );
+  assert.equal(tokens.length, 0, 'OPAQUE_TAGS 内的代码文本严禁产生 Token');
+
+  container.remove();
+});
+
+test('RISK03-08: no duplicate token after overlapping mutation records — 父子节点同时进入新增列表时零重复 Token 与零重叠高亮', async () => {
+  const runner = new DynamicWebRunner();
+  runner.settings.oncePerPage = false; // 严苛模式：关闭 oncePerPage，确保去重来自 DOM 树包含性裁剪而非 seen 集合
+  runner.init();
+
+  // 模拟同一事件循环内，父容器挂载到 body，子元素挂载到父容器
+  const parent = document.createElement('div');
+  const child = document.createElement('p');
+  child.textContent = 'The tide receded slowly as sediment accretes in strata.';
+  parent.appendChild(child);
+
+  // 挂载到 DOM
+  document.body.appendChild(parent);
+
+  // 触发一次合成批处理
+  await runner.flush();
+
+  // 提取各单词出现频次
+  const recededTokens = runner.tokens.filter((t) => t.surface === 'receded');
+  const accretesTokens = runner.tokens.filter((t) => t.surface === 'accretes');
+  const strataTokens = runner.tokens.filter((t) => t.surface === 'strata');
+
+  assert.equal(recededTokens.length, 1, 'receded 必须恰好只有 1 个 Token，严禁因父子层叠重复扫描');
+  assert.equal(accretesTokens.length, 1, 'accretes 必须恰好只有 1 个 Token');
+  assert.equal(strataTokens.length, 1, 'strata 必须恰好只有 1 个 Token');
+
+  // 验证 Highlight Range 集合
+  const mark = highlightMap.get('glint-mark');
+  assert.ok(mark);
+  assert.equal(mark.ranges.length, runner.tokens.length, '高亮 Range 数与 Token 数严格一致');
+
+  runner.destroy();
+});
+
+test('RISK02-EVAL: mutation threshold fallback evaluation — 量化评估 >250 突变阈值在 251, 500, 1000 次变动下的降级开销与安全边界', async () => {
+  const container = document.createElement('div');
+  container.id = 'eval-container';
+  // 建立一个含有 100 个段落的基础 DOM 树
+  for (let i = 0; i < 100; i++) {
+    const p = document.createElement('p');
+    p.textContent = `Baseline ${i}: The geological strata accretes.`;
+    container.appendChild(p);
+  }
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+  const baseFullRescanCount = runner.metrics.fullRescanCount;
+  assert.equal(baseFullRescanCount, 1);
+
+  // 测试 1: 50 次增量变动 (<= 250)
+  const tInc0 = performance.now();
+  for (let i = 0; i < 50; i++) {
+    const s = document.createElement('span');
+    s.textContent = `Inc ${i}: receded. `;
+    container.appendChild(s);
+  }
+  await runner.flush();
+  const incDuration = performance.now() - tInc0;
+  assert.equal(runner.metrics.fullRescanCount, 1, '50 次变动走增量分支');
+  assert.equal(runner.metrics.incrementalScanCount, 1);
+
+  // 测试 2: 251 次突发变动 (临界回退)
+  const t251_0 = performance.now();
+  for (let i = 0; i < 251; i++) {
+    const s = document.createElement('span');
+    s.textContent = `Mut251_${i}: receded. `;
+    container.appendChild(s);
+  }
+  await runner.flush();
+  const dur251 = performance.now() - t251_0;
+  assert.equal(runner.metrics.fullRescanCount, 2, '251 次变动正确触发 fallback 全量扫描');
+
+  // 测试 3: 500 次突发变动
+  const t500_0 = performance.now();
+  for (let i = 0; i < 500; i++) {
+    const s = document.createElement('span');
+    s.textContent = `Mut500_${i}: receded. `;
+    container.appendChild(s);
+  }
+  await runner.flush();
+  const dur500 = performance.now() - t500_0;
+  assert.equal(runner.metrics.fullRescanCount, 3, '500 次变动正确触发 fallback 全量扫描');
+
+  // 测试 4: 1000 次突发变动 (极限风暴)
+  const t1000_0 = performance.now();
+  for (let i = 0; i < 1000; i++) {
+    const s = document.createElement('span');
+    s.textContent = `Mut1000_${i}: receded. `;
+    container.appendChild(s);
+  }
+  await runner.flush();
+  const dur1000 = performance.now() - t1000_0;
+  assert.equal(runner.metrics.fullRescanCount, 4, '1000 次变动正确触发 fallback 全量扫描');
+
+  // 验证硬上限保护依然生效
+  assert.ok(runner.tokens.length <= 2500, 'MAX_TOKENS = 2500 硬上限保护依然有效');
+
+  console.info(`[RISK02-EVAL] 50 mutations (incremental): ${incDuration.toFixed(2)}ms`);
+  console.info(`[RISK02-EVAL] 251 mutations (fallback): ${dur251.toFixed(2)}ms`);
+  console.info(`[RISK02-EVAL] 500 mutations (fallback): ${dur500.toFixed(2)}ms`);
+  console.info(`[RISK02-EVAL] 1000 mutations (fallback): ${dur1000.toFixed(2)}ms`);
 
   runner.destroy();
 });

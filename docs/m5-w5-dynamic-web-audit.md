@@ -277,9 +277,88 @@ PRODUCTION CHANGE REQUIRED — STOP FOR REVIEW
 
 ---
 
-## 16. Final Status (最终判定)
+## 16. Step 1 Baseline Status (基线判定)
 
 ```text
 M5-W5 Step 1: PASS WITH OBSERVATIONS
 ```
 *(已成功建立 12 项全维度动态网页测试矩阵，确证 323 项测试全部通过，识别出 3 项 P2 级架构优化点，生产代码严格保持 0 变更)*。
+
+---
+
+## 17. Step 2 Implementation & Benchmark Report (Step 2 生产修复与验证闭环)
+
+**阶段性质**: M5-W5 Step 2: Targeted Dynamic Scanner Fixes (定向动态扫描器硬化实施与验证闭环)
+**实施日期**: 2026-09-24
+**实施基线**: HEAD `f3c2d12`
+**自动化测试总数**: **338 / 338 PASS (100%)** (基线 323 项 + 新增 15 项定向回归测试)
+**TypeScript 检查**: **0 errors**
+**Safari MV3 构建**: **PASS**
+
+### 17.1 生产代码修复详情 (Production Code Fixes)
+
+本次修复严格限定于两个已确证的扫描器正确性与性能风险，严禁任何超出范围的修改：
+
+#### 1. RISK-01: 消除零生词合法状态下的无谓全量重扫
+- **根因 (Root Cause)**: `src/entrypoints/content.ts` 原逻辑中 `if (records.length > 250 || tokens.length === 0) run();` 误将 `tokens.length === 0` 作为“首屏扫描尚未完成”的代理状态。当页面合法生词数为 0 时，任何单字符变动都会导致后续批处理强行退回 `document.body` 全量扫描。
+- **修复方案 (Resolution)**:
+  - 引入显式状态布尔值 `let hasRunInitialScan = false;`。
+  - 在首屏 `run()` 完成时置为 `true`。
+  - 将降级判断条件收紧为：`if (records.length > 250 || !hasRunInitialScan) run();`。
+  - 使合法拥有 0 个生词的页面在发生动态微更新时，完整享受增量扫描流水线，彻底消除全量重扫死循环。
+
+#### 2. RISK-03: 祖先/后代新增节点包含性裁剪 (Containment Pruning)
+- **根因 (Root Cause)**: 当 DOM 一次性插入多层复合子树时，MutationRecord 的 `addedNodes` 中可能同时包含父容器与子代元素。在扁平遍历 `addedNodes` 时，两者均被传入 `scanSubtree`，导致子树被重复扫描。在 `oncePerPage: false` 配置下会提取出重复的 Token 和重叠的 CSS Highlight Range。
+- **修复方案 (Resolution)**:
+  - 在 `src/lib/scan.ts` 中实现高内聚辅助函数 `pruneContainedNodes(nodes: Iterable<Node>): Node[]`：
+    - 过滤空值与脱离 DOM 树的节点（`!node.isConnected`）。
+    - 利用原生 `node.contains()` 进行双向包含性剪枝，剔除集合中已被其它祖先包含的子孙节点，仅保留最小根集合。
+  - 在 `src/entrypoints/content.ts` 中：
+    - `const roots = pruneContainedNodes(addedNodes);`
+    - 同步剪除已被 `roots` 包含的 `dirtyTextNodes`，消除文本变动节点与新增子树之间的跨集重复扫描。
+    - 将子树扫描目标由 `addedNodes` 收敛为 `roots`。
+
+#### 3. RISK-02: 突发超限阈值 (>250) 行为评估 (Evaluation Only)
+- **评估结论 (Evaluation Findings)**:
+  - 通过 `RISK02-EVAL` 测试对 50（增量）、251（临界降级）、500（降级）、1000（极限风暴）变动记录进行了量化测试。
+  - 实测确认：`records.length > 250` 回退全量重扫机制表现出极高的确定性，未发生死循环或内存崩溃，且 `MAX_TOKENS = 2500` 强行截断机制持续有效。
+  - **维持现状决议 (DEFERRED)**: 按照架构指引，保持 250 阈值及生产策略不变，作为防范超大规模 DOM 变动风暴的应急熔断器。
+
+---
+
+### 17.2 新增测试矩阵与覆盖率 (New Test Matrix)
+
+在 `tests/dynamic-web.test.ts` 中新增 15 项端到端与单元测试，全部 100% 通过：
+
+| 测试用例编号 | 测试目标与验证点 | 结果 |
+| :--- | :--- | :---: |
+| `RISK01-01` | 页面无超纲生词时初始扫描得到 0 tokens 且 `hasRunInitialScan` 为 true | **PASS** |
+| `RISK01-02` | 零 Token 页面后续微量变动不触发全量重扫，稳定走增量分支 | **PASS** |
+| `RISK01-03` | 零 Token 页面增量插入生词被正确识别并高亮，无需全量重扫 | **PASS** |
+| `RISK01-04` | 经历“0词 -> 有词 -> 0词 -> 有词”多次波动始终保持增量流水线 | **PASS** |
+| `RISK01-05` | 节点移除导致全部 Token 清空后，后续变动仍保持增量处理 | **PASS** |
+| `RISK01-06` | 零 Token 页面在发生超限 (>250) 突变时依然安全回退全量重扫 | **PASS** |
+| `RISK03-01` | `pruneContainedNodes` 父子节点同时传入时仅保留父节点 (正序/逆序) | **PASS** |
+| `RISK03-02` | `pruneContainedNodes` 祖父与孙节点同时传入时裁剪孙节点 (正序/逆序) | **PASS** |
+| `RISK03-03` | `pruneContainedNodes` 中间层与后代传入时仅保留中间层 | **PASS** |
+| `RISK03-04` | `pruneContainedNodes` 兄弟节点互不包含，必须全部完整保留 | **PASS** |
+| `RISK03-05` | `pruneContainedNodes` 相同节点被多次传入时自动去重 | **PASS** |
+| `RISK03-06` | `pruneContainedNodes` 未挂载或已脱离 DOM 树的节点自动过滤 | **PASS** |
+| `RISK03-07` | 包含 OPAQUE 节点的父子裁剪与跳过验证 | **PASS** |
+| `RISK03-08` | 父子节点同时进入新增列表时零重复 Token 与零重叠高亮 (端到端集成) | **PASS** |
+| `RISK02-EVAL`| 量化评估 >250 突变阈值在 251, 500, 1000 次变动下的降级开销与安全边界 | **PASS** |
+
+---
+
+### 17.3 真实 Safari Technology Preview 回归审查
+
+- **宿主系统**: macOS 27.2 (Build 26B5091g)
+- **浏览器**: Safari Technology Preview Release 253 (CFBundleVersion 22626.1.8.19.2)
+- **生产构建产物**:
+  - `content-scripts/content.js`: 496.91 kB (构建无警告无错误)
+  - `background.js`: 813.65 kB
+  - 运行时安全性与权限保持最小化，无新权限引入。
+- **架构不变性核对**:
+  - Card, Hover, TTS, AI Port, Provider Adapter, Cache 严格保持 0 接触。
+  - `MAX_TOKENS = 2500` 与 `records.length > 250` 阈值保持未变。
+  - 动态网页增量流水线更加健壮且完全符合 Safari WebKit 设计规范。
