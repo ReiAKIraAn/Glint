@@ -1,6 +1,7 @@
 import { LEVEL_NAMES, UNKNOWN_LEVEL, type Analysis, type DictEntry, type Explained } from './types';
 import type { Token } from './scan';
 import { OWN_ELEMENT } from './scan';
+import type { AiStreamClient } from './ai-port';
 
 /** ECDICT 的考试标签，展示成人话。 */
 export const TAG_LABELS: Record<string, string> = {
@@ -14,9 +15,21 @@ export const TAG_LABELS: Record<string, string> = {
   gre: 'GRE',
 };
 
+export type AiUiState =
+  | { kind: 'idle' }
+  | { kind: 'loading'; requestId: string }
+  | { kind: 'streaming'; requestId: string; text: string }
+  | { kind: 'done'; requestId: string; text: string }
+  | { kind: 'error'; requestId: string; code: string; message: string; text: string }
+  | { kind: 'aborted'; requestId: string; text: string };
+
 export interface CardDeps {
   /** 本地词库，秒回 */
   lookup(word: string): Promise<DictEntry | null>;
+  /** AI 流式客户端 (Milestone 4 Step 3) */
+  aiClient?: Pick<AiStreamClient, 'start' | 'abort' | 'getActiveRequestId'>;
+  /** 提取 Token 所在单句 (Milestone 4 Step 3) */
+  sentenceOf?(token: Token): string;
   /** 调 AI 做语境释义（预留给后续里程碑） */
   analyze?(token: Token): Promise<{ ok: true; analysis: Analysis } | { ok: false; error: string }>;
   /** AI 是否已配置好 */
@@ -57,8 +70,19 @@ export class Card {
   private phoneticEl: HTMLDivElement;
   private tagsEl: HTMLDivElement;
   private transEl: HTMLDivElement;
+  private aiSectionEl: HTMLDivElement;
+  private aiActionsEl: HTMLDivElement;
+  private aiExplainBtn: HTMLButtonElement;
+  private aiCancelBtn: HTMLButtonElement;
+  private aiStatusEl: HTMLDivElement;
+  private aiTextEl: HTMLDivElement;
+  private aiErrorEl: HTMLDivElement;
   private footEl: HTMLDivElement;
   private knownBtn: HTMLButtonElement;
+
+  private aiState: AiUiState = { kind: 'idle' };
+  private pendingAiText = '';
+  private rafId: number | null = null;
 
   private token?: Token;
   private rect?: DOMRect;
@@ -106,7 +130,49 @@ export class Card {
     this.transEl = document.createElement('div');
     this.transEl.className = 'zh';
 
-    // 5. 底部栏：认识按钮
+    // 5. AI 语境释义区域 (Milestone 4 Step 3)
+    this.aiSectionEl = document.createElement('div');
+    this.aiSectionEl.className = 'ai-section';
+
+    this.aiActionsEl = document.createElement('div');
+    this.aiActionsEl.className = 'ai-actions';
+
+    this.aiExplainBtn = document.createElement('button');
+    this.aiExplainBtn.type = 'button';
+    this.aiExplainBtn.className = 'ai-btn ai-explain-btn';
+    this.aiExplainBtn.dataset.act = 'ai-explain';
+    this.aiExplainBtn.setAttribute('aria-label', 'AI 语境释义');
+    this.aiExplainBtn.textContent = '✨ AI 解释';
+
+    this.aiCancelBtn = document.createElement('button');
+    this.aiCancelBtn.type = 'button';
+    this.aiCancelBtn.className = 'ai-btn ai-cancel-btn';
+    this.aiCancelBtn.dataset.act = 'ai-cancel';
+    this.aiCancelBtn.setAttribute('aria-label', '取消 AI 释义');
+    this.aiCancelBtn.textContent = '取消';
+    this.aiCancelBtn.hidden = true;
+
+    this.aiActionsEl.append(this.aiExplainBtn, this.aiCancelBtn);
+
+    this.aiStatusEl = document.createElement('div');
+    this.aiStatusEl.className = 'ai-status';
+    this.aiStatusEl.hidden = true;
+
+    this.aiTextEl = document.createElement('div');
+    this.aiTextEl.className = 'ai-text';
+    this.aiTextEl.setAttribute('role', 'region');
+    this.aiTextEl.setAttribute('aria-label', 'AI 语境释义结果');
+    this.aiTextEl.hidden = true;
+
+    this.aiErrorEl = document.createElement('div');
+    this.aiErrorEl.className = 'ai-error';
+    this.aiErrorEl.setAttribute('role', 'alert');
+    this.aiErrorEl.hidden = true;
+
+    this.aiSectionEl.append(this.aiActionsEl, this.aiStatusEl, this.aiTextEl, this.aiErrorEl);
+    this.aiSectionEl.hidden = !this.deps.aiClient;
+
+    // 6. 底部栏：认识按钮
     this.footEl = document.createElement('div');
     this.footEl.className = 'foot';
     this.knownBtn = document.createElement('button');
@@ -116,7 +182,7 @@ export class Card {
     this.knownBtn.textContent = '✓ 认识';
     this.footEl.append(this.knownBtn);
 
-    this.box.append(this.headEl, this.phoneticEl, this.tagsEl, this.transEl, this.footEl);
+    this.box.append(this.headEl, this.phoneticEl, this.tagsEl, this.transEl, this.aiSectionEl, this.footEl);
     this.shadow.append(style, this.box);
 
     this.host.addEventListener('pointerenter', () => {
@@ -156,11 +222,15 @@ export class Card {
   }
 
   destroy() {
+    this.abortAi();
+    this.cancelPendingRaf();
     clearTimeout(this.unmountTimer);
     this.host.remove();
   }
 
   hide() {
+    this.abortAi();
+    this.resetAiUi();
     this.token = undefined;
     this.epoch++; // 作废正在进行的异步查词
     if (this.host.style.display === 'none') return;
@@ -172,6 +242,10 @@ export class Card {
   }
 
   async show(token: Token, rect: DOMRect) {
+    if (this.token !== token) {
+      this.abortAi();
+      this.resetAiUi();
+    }
     this.token = token;
     this.rect = rect;
     this.entry = null;
@@ -201,14 +275,24 @@ export class Card {
     this.transEl.className = 'zh muted';
     this.transEl.textContent = '查询中...';
 
-    // 3. 展现并初步定位
+    // 3. AI 语境释义区域初始化（不自动请求，仅显式展示入口）
+    this.aiSectionEl.hidden = !this.deps.aiClient;
+    if (this.aiState.kind === 'idle') {
+      this.aiExplainBtn.hidden = false;
+      this.aiCancelBtn.hidden = true;
+      this.aiStatusEl.hidden = true;
+      this.aiTextEl.hidden = true;
+      this.aiErrorEl.hidden = true;
+    }
+
+    // 4. 展现并初步定位
     this.host.style.display = 'block';
     const animate = document.visibilityState === 'visible';
     this.box.style.transition = animate ? '' : 'none';
     this.position(rect);
     this.box.classList.add('is-open');
 
-    // 4. 异步拉取本地词典数据
+    // 5. 异步拉取本地词典数据
     const entry = await this.deps.lookup(token.lemma);
     if (epoch !== this.epoch) return;
 
@@ -217,6 +301,169 @@ export class Card {
 
     // 词典数据填充后高度可能变化，平滑重定位一次
     if (this.rect) this.position(this.rect);
+  }
+
+  get aiUiState(): AiUiState {
+    return this.aiState;
+  }
+
+  get aiExplainButton(): HTMLButtonElement {
+    return this.aiExplainBtn;
+  }
+
+  get aiCancelButton(): HTMLButtonElement {
+    return this.aiCancelBtn;
+  }
+
+  get aiStatusElement(): HTMLDivElement {
+    return this.aiStatusEl;
+  }
+
+  get aiTextElement(): HTMLDivElement {
+    return this.aiTextEl;
+  }
+
+  get aiErrorElement(): HTMLDivElement {
+    return this.aiErrorEl;
+  }
+
+  startAi() {
+    if (!this.token) return;
+    if (!this.deps.aiClient) return;
+
+    if (this.aiState.kind === 'loading' || this.aiState.kind === 'streaming') {
+      this.abortAi();
+    }
+
+    this.cancelPendingRaf();
+    const token = this.token;
+    const sentence = this.deps.sentenceOf ? this.deps.sentenceOf(token) : token.surface;
+
+    // 清除上一轮 AI 内容并切换至 loading
+    this.aiExplainBtn.hidden = true;
+    this.aiCancelBtn.hidden = false;
+    this.aiStatusEl.hidden = false;
+    this.aiStatusEl.textContent = 'AI 正在分析语境...';
+    this.aiTextEl.hidden = true;
+    this.aiTextEl.textContent = '';
+    this.aiErrorEl.hidden = true;
+    this.aiErrorEl.textContent = '';
+
+    const requestId = this.deps.aiClient.start(
+      {
+        word: token.surface,
+        lemma: token.lemma,
+        sentence,
+      },
+      {
+        onChunk: (text: string) => {
+          if (this.aiState.kind !== 'loading' && this.aiState.kind !== 'streaming') return;
+          if (this.aiState.requestId !== requestId) return;
+          if (this.aiState.kind === 'loading') {
+            this.aiState = { kind: 'streaming', requestId, text: '' };
+            this.aiStatusEl.hidden = true;
+            this.aiTextEl.hidden = false;
+          }
+          this.pendingAiText += text;
+          this.scheduleAiRender();
+        },
+        onDone: () => {
+          if (this.aiState.kind !== 'loading' && this.aiState.kind !== 'streaming') return;
+          if (this.aiState.requestId !== requestId) return;
+          this.flushAiRender();
+          const finalText = this.aiState.kind === 'streaming' ? this.aiState.text : '';
+          this.aiState = { kind: 'done', requestId, text: finalText };
+          this.aiCancelBtn.hidden = true;
+          this.aiStatusEl.hidden = true;
+          if (this.rect) this.position(this.rect);
+        },
+        onError: (_code: string, message: string) => {
+          if (this.aiState.kind !== 'loading' && this.aiState.kind !== 'streaming') return;
+          if (this.aiState.requestId !== requestId) return;
+          this.flushAiRender();
+          const textSoFar = this.aiState.kind === 'streaming' ? this.aiState.text : '';
+          this.aiState = { kind: 'error', requestId, code: _code, message, text: textSoFar };
+          this.aiCancelBtn.hidden = true;
+          this.aiStatusEl.hidden = true;
+          this.aiErrorEl.hidden = false;
+          this.aiErrorEl.textContent = message;
+          this.aiExplainBtn.hidden = false;
+          this.aiExplainBtn.textContent = '重试 AI 解释';
+          if (this.rect) this.position(this.rect);
+        },
+      },
+    );
+
+    this.aiState = { kind: 'loading', requestId };
+    if (this.rect) this.position(this.rect);
+  }
+
+  abortAi() {
+    if (this.aiState.kind === 'loading' || this.aiState.kind === 'streaming') {
+      const reqId = this.aiState.requestId;
+      this.flushAiRender();
+      this.cancelPendingRaf();
+      this.deps.aiClient?.abort();
+      const textSoFar = this.aiState.kind === 'streaming' ? this.aiState.text : '';
+      this.aiState = { kind: 'aborted', requestId: reqId, text: textSoFar };
+      this.aiCancelBtn.hidden = true;
+      this.aiStatusEl.hidden = false;
+      this.aiStatusEl.textContent = '（已取消）';
+      this.aiExplainBtn.hidden = false;
+      this.aiExplainBtn.textContent = textSoFar ? '重新解释' : '✨ AI 解释';
+      if (this.rect) this.position(this.rect);
+    }
+  }
+
+  private resetAiUi() {
+    this.cancelPendingRaf();
+    this.aiState = { kind: 'idle' };
+    this.aiExplainBtn.hidden = false;
+    this.aiExplainBtn.textContent = '✨ AI 解释';
+    this.aiCancelBtn.hidden = true;
+    this.aiStatusEl.hidden = true;
+    this.aiStatusEl.textContent = '';
+    this.aiTextEl.hidden = true;
+    this.aiTextEl.textContent = '';
+    this.aiErrorEl.hidden = true;
+    this.aiErrorEl.textContent = '';
+  }
+
+  private scheduleAiRender() {
+    if (this.rafId !== null) return;
+    if (typeof requestAnimationFrame === 'function') {
+      this.rafId = requestAnimationFrame(() => {
+        this.rafId = null;
+        this.flushAiRender();
+      });
+    } else {
+      this.flushAiRender();
+    }
+  }
+
+  private flushAiRender() {
+    if (this.rafId !== null) {
+      if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this.rafId);
+      }
+      this.rafId = null;
+    }
+    if (this.aiState.kind === 'streaming' && this.pendingAiText) {
+      this.aiState.text += this.pendingAiText;
+      this.pendingAiText = '';
+      this.aiTextEl.textContent = this.aiState.text;
+      if (this.rect) this.position(this.rect);
+    }
+  }
+
+  private cancelPendingRaf() {
+    if (this.rafId !== null) {
+      if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this.rafId);
+      }
+      this.rafId = null;
+    }
+    this.pendingAiText = '';
   }
 
   private renderEntry(entry: DictEntry | null) {
@@ -289,6 +536,10 @@ export class Card {
     if (action === 'known') {
       this.deps.onKnown(this.token.lemma);
       this.hide();
+    } else if (action === 'ai-explain') {
+      this.startAi();
+    } else if (action === 'ai-cancel') {
+      this.abortAi();
     }
   };
 }
@@ -418,6 +669,86 @@ const CSS_TEXT = `
 .zh { margin-top: 10px; }
 .zh div + div { margin-top: 2px; }
 .zh.muted { color: var(--muted); font-size: 12px; }
+
+.ai-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: background .12s, border-color .12s, color .12s;
+}
+
+.ai-btn:hover {
+  background: var(--line);
+  border-color: var(--line);
+}
+
+.ai-btn.ai-cancel-btn {
+  color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+  padding: 4px 6px;
+}
+
+.ai-btn.ai-cancel-btn:hover {
+  color: var(--fg);
+  background: var(--soft);
+}
+
+.ai-status {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ai-text {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-error {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: oklch(55% 0.22 25);
+  background: oklch(55% 0.22 25 / 8%);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid oklch(55% 0.22 25 / 20%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-error {
+    color: oklch(75% 0.18 25);
+    background: oklch(75% 0.18 25 / 12%);
+    border-color: oklch(75% 0.18 25 / 25%);
+  }
+}
 
 .foot {
   display: flex; align-items: center; gap: 10px;

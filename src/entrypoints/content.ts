@@ -122,40 +122,16 @@ export default defineContentScript({
       }
     }
 
+    const aiStreamClient = new AiStreamClient();
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __glintAiStreamClient?: AiStreamClient }).__glintAiStreamClient = aiStreamClient;
+    }
+
     const card = new Card({
       lookup: (word) => send({ kind: 'dict:lookup', word }) as Promise<DictEntry | null>,
-      analyze: async (token) => {
-        const sentence = sentenceAround(token);
-        const result = (await send({
-          kind: 'ai:analyze',
-          word: token.surface,
-          lemma: token.lemma,
-          sentence,
-        })) as { ok: true; analysis: Analysis } | { ok: false; error: string };
-        /**
-         * 存盘在 background 那边做（钱在那儿花的，页面被关掉也不影响，见 remember）。
-         * 这里只把内存镜像顺手更新一下。
-         *
-         * 不能等 storage 的变更通知绕回来再更新：那中间隔着一次事件派发，
-         * 而这段时间里鼠标可能已经又停回同一个词上了——镜像还是空的，
-         * 卡片就会再摆出一次「AI 释义」按钮，请用户为刚买过的东西再付一次。
-         * 这一份稍后会被 watch 里那份权威的覆盖掉，时间戳差几毫秒无所谓。
-         */
-        if (result.ok) {
-          explained = {
-            ...explained,
-            [token.lemma]: {
-              sentence,
-              surface: token.surface,
-              analysis: result.analysis,
-              time: Date.now(),
-            },
-          };
-        }
-        return result;
-      },
+      aiClient: aiStreamClient,
+      sentenceOf: (token) => sentenceAround(token),
       aiReady: async () => canExplain,
-      cached: (lemma) => explained[lemma] ?? null,
       onKnown: async (lemma) => {
         known.add(lemma);
         await knownWordsStore.setValue([...known]);
@@ -207,13 +183,6 @@ export default defineContentScript({
     hover.start();
     await Promise.all([refreshAiStatus(), refreshExamWords()]);
     schedule(run);
-
-    // Milestone 4 Step 2: 仅供 Safari TP smoke test 调用的流式客户端测试句柄，不修改 Card UI
-    let aiStreamClient: AiStreamClient | undefined;
-    if (typeof window !== 'undefined') {
-      aiStreamClient = new AiStreamClient();
-      (window as unknown as { __glintAiStreamClient?: AiStreamClient }).__glintAiStreamClient = aiStreamClient;
-    }
 
     /**
      * Safari-First 高性能增量扫描引擎：

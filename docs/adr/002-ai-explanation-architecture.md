@@ -422,3 +422,34 @@ Prompt 中引导模型以固定标号输出结构化释义：
   - **SAFARI TP VERIFIED**: 基础单流、同 Port 替换、双标签页隔离并发、标签页关闭与页面导航实机验证通过。
   - **SAFARI TP REAL SLOW-STREAM UNVERIFIED**: 真实网络极端超慢流（如 > 30s 停顿）下 WebKit 是否强杀 Worker 或保持连接，目前尚无确定性官方规范，记录为客观未验证状态。
 
+---
+
+## 十四、Step 3 实现沉淀：AI Card UI 状态机与流式安全渲染 (Streaming UI State Machine & Safe Rendering)
+
+在 Milestone 4 / Step 3 中，已完成将 `AiStreamClient` 流式客户端接入现有 Hover Card，实现了用户显式操作驱动的端到端流式 UI 闭环：
+
+### 1. 严格受控的 UI 状态机 (Strict UI State Machine)
+卡片内部维护类型安全的受区分联合体 `AiUiState`：
+- `idle`: 初始状态。本地词典已即时展示；AI 区域展示“✨ AI 解释”操作按钮，零后台网络开销。
+- `loading`: 用户显式点击后触发。UI 切换至“AI 正在分析语境...”，取消按钮就绪，主操作按钮隐藏，防止二次并发触发。
+- `streaming`: 收到首个 `AI_CHUNK` 后触发。状态提示收起，正文容器呈现，文本打字机流式追加。
+- `done`: 收到 `AI_DONE` 并完成最终 `flushAiRender()`。取消按钮收起，释义完整固定。
+- `error`: 捕获 `AI_ERROR` 或网络故障。保留已推流内容，在独立安全 alert 容器中渲染脱敏错误文本，并提供重试入口。
+- `aborted`: 用户主动点击“取消”或外部交互掐断。保留已推流内容并标记“（已取消）”，提供重新解释按钮。
+
+### 2. rAF 渲染批处理与尾部防丢机制 (rAF Batching & Zero Tail Loss)
+- **帧对齐合并**: 极高频抵达的 SSE 文本分块先暂存入 `pendingAiText`，仅调度单一活跃 `requestAnimationFrame`。避免高频微更新引发 WebKit 多次触发样式重算与强制重排。
+- **确定性清空 (Deterministic Flush)**: 在流式正常收尾 (`onDone`)、异常中断 (`onError`) 或主动取消 (`abortAi`) 时，强制调用 `flushAiRender()` 将缓冲区残余字符一次性排空，杜绝尾部释义丢失。
+
+### 3. 不可信文本绝对安全防护 (Zero-Trust Text Sanitization)
+- **纯 `textContent` 输出**: AI 生成内容被视作不可信数据（Untrusted Input）。所有文本块、状态文案、错误信息均 100% 写入 `textContent`，严禁使用 `innerHTML`。
+- **零外部解析依赖**: 坚决不引入 Markdown 解析器、HTML 清洗库或第三方富文本依赖，从根本上杜绝 Prompt Injection 诱发 XSS 的攻击面。
+
+### 4. UI 侧世代守卫与跨 Token 隔离 (UI-Side Epoch Guard)
+- 回调路由校验：在 `onChunk`、`onDone`、`onError` 发生时，严格比对 `this.aiState.requestId === requestId`。
+- Token 切换清空：用户光标移动至新 Token 时，卡片即刻调用 `abortAi()` 掐断上一个请求，并执行 `resetAiUi()` 重置状态机。任何因异步微任务漂移到达的旧 token 残余增量均被 UI 静默丢弃，绝不污染新卡片。
+
+### 5. 单例 DOM 复用与生命周期清理
+- 卡片采用 `<glint-card>` Shadow DOM 单例架构。AI Section 的所有结构性节点（按钮、状态容器、文本区域）在构造函数中一次性创建完毕。
+- 卡片在 `hide()`、`destroy()` 或页面导航 `pagehide` 时，联动执行 `abortAi()` 与 `cancelPendingRaf()`，确保无脱离 DOM 的游离任务与内存悬挂。
+

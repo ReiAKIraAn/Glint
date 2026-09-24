@@ -6,6 +6,22 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 10: Milestone 4 / Step 3 — AI Card UI 与流式安全渲染 (Streaming Card UI Integration) - 2026-09-24
+- **悬浮卡片 AI 流式交互与状态机架构 (`src/lib/card.ts`)**:
+  - 接入 `AiStreamClient`，实现类型安全的六态 UI 状态机（`idle`、`loading`、`streaming`、`done`、`error`、`aborted`），每态严格携带 `requestId` 进行世代守卫。
+  - 触发原则严格受控：Hover 仅展示本地即时词典，AI 区域仅展示“✨ AI 解释”操作按钮，绝对零自动预取与零后台流量开销。
+  - 用户显式点击后切换 `loading` 态并展示“取消”按钮，禁止多重并发触发；首个 chunk 到达后切换 `streaming` 打字机态；`AI_DONE` 时隐藏取消按钮并自适应微调卡片定位。
+  - rAF 节流批处理机制：SSE 文本微更新分块暂存入 `pendingAiText`，对齐单一 `requestAnimationFrame` 句柄更新 DOM；在 `onDone`、`onError`、`abortAi` 时执行 `flushAiRender()` 强制排空，确保尾部文字零遗漏。
+  - 不可信文本绝对安全防护：所有 AI 文本增量、状态文案、报错提示 100% 经由 `.textContent` 写入 Shadow DOM，彻底杜绝 `innerHTML`；零外部 Markdown / HTML parser 依赖，天然阻断 XSS。
+  - 单例 DOM 架构复用与世代隔离：维持 `<glint-card>` 全局单例，AI 容器与节点在构造阶段一次性创建；用户切换生词时即刻 abort 旧请求并重置状态，旧请求迟到回调完全被 UI 丢弃。
+- **内容脚本生命周期与连接对齐 (`src/entrypoints/content.ts`)**:
+  - 统合卡片与流式客户端：单例 `AiStreamClient` 直接注入 `Card` 依赖，提供 `sentenceOf` 单句提取函数。
+  - 页面卸载联动：在 `pagehide` 事件中统一触发 `card.destroy()` 与客户端 `disconnect()`，释放所有引用与 DOM 节点。
+- **Step 3 自动化测试套件 (`tests/ai-card.test.ts`)**:
+  - 新增 45 项全维度专项自动化测试：覆盖触发边界 (A1-A5)、Loading 态 (B6-B8)、Streaming 打字机与 rAF (C9-C14)、Stale / Epoch 守卫 (D15-D19)、用户取消与未决 rAF 清理 (E20-E24)、错误安全脱敏与无 Key 泄露 (F25-F28)、XSS 纯文本安全转义 (G29-G32)、Token 切换隔离 (H33-H37)、卡片生命周期单例与销毁 (I38-I42)、Payload 上下文收敛 (J43-J47)、可访问性与语义无障碍 (K48-K51) 及 1,000 chunks 高频压力测试 (Perf 52)。
+  - 自动化回归测试用例总数由 203 项增长至 248 项，全部 PASS (1385ms)。
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功构建。
+
 ### Phase 9: Milestone 4 / Step 2 — Background Port 联调与连接隔离架构 (Connection-Isolated Port Integration) - 2026-09-24
 - **Port 流式通信协议与连接调度器 (`src/lib/ai-port.ts`)**:
   - 冻结最小化 Port 协议：客户端消息 `AI_START`、`AI_ABORT`；服务端消息 `AI_CHUNK`、`AI_DONE`、`AI_ERROR`。每条消息强制绑定 `requestId: string`。

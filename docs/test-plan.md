@@ -176,12 +176,46 @@
 | Test 7 | Slow Stream 长空闲 | 网络极端卡顿/慢流下 WebKit 行为 | 缺乏确定性 WebKit 规范保证，不设虚假 keep-alive，客观标记为需进一步监控 | **UNVERIFIED** |
 | Test 8 | API Key 零泄露全链路核查 | Content Script、Port 消息、DOM、Console 绝无 Key | DevTools 检查 Port 通信 payload、页面 window 对象、DOM 树及控制台日志，确认 API Key 仅存在于 Background 内部 | **PASS** |
 
-### 8. 数据备份与 Anki 导出
+### 8. AI 卡片 UI 与流式渲染自动化测试套件 (Milestone 4 Step 3 - tests/ai-card.test.ts)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM 模拟环境 (45 项专项测试 100% PASS)*
+
+| 模块类别 | 测试用例 ID | 验证要点与断言说明 | 结果 |
+| :--- | :--- | :--- | :--- |
+| **A. Trigger** | A1 - A5 | 悬停/展开卡片零 AI 请求；显式点击“✨ AI 解释”发出单次 `AI_START`；防重复点击；本地词库即时可见 | ✅ PASS |
+| **B. Loading** | B6 - B8 | 点击后进入 loading 态；“取消”按钮可见；状态提示文案就绪；唯一活动请求守卫生效 | ✅ PASS |
+| **C. Streaming** | C9 - C14 | 首个 chunk 切入 streaming 态；文本正确按序累加；rAF 合并批处理；`AI_DONE` 强制排空尾部缓冲区并切入 done 态 | ✅ PASS |
+| **D. Stale / Epoch** | D15 - D19 | 严格匹配 requestId；静默丢弃过期 chunk、done、error；新请求完全重置上一轮 UI 状态 | ✅ PASS |
+| **E. Abort** | E20 - E24 | 点击“取消”调用底座 abort；UI 立即转为 aborted 态并标记“（已取消）”；未决 rAF 即刻销毁；迟到 chunk/done 不影响状态 | ✅ PASS |
+| **F. Error** | F25 - F28 | 捕获 `AI_ERROR` 呈现安全脱敏提示；保留已有已推流文本；严禁回显内部堆栈与 API Key | ✅ PASS |
+| **G. Security / XSS** | G29 - G32 | 恶意 `<script>`、`<img onerror>` 100% 纯文本呈现；不使用 `innerHTML`；页面 script 节点数绝不增长 | ✅ PASS |
+| **H. Token Switch** | H33 - H37 | 切换生词立即 abort 上一个请求；旧词迟到包静默丢弃；新词本地词典正常显示且可独立发起 AI 请求 | ✅ PASS |
+| **I. Lifecycle** | I38 - I42 | 卡片全局单例 `<glint-card>`；`hide()` 自动 abort；页面卸载 `destroy()` 完全断开与释放引用 | ✅ PASS |
+| **J. Payload Boundary** | J43 - J47 | 上下文边界严守单句与目标词，严禁全页上传与 DOM 结构泄漏 | ✅ PASS |
+| **K. Accessibility & UI** | K48 - K51 | 交互入口采用原生 button；具备标准 accessible name 与 role；状态语义清晰可区分 | ✅ PASS |
+| **Performance** | Perf 52 | 压力测试：模拟 1,000 个高频微小 chunk 密集灌入，rAF 批处理稳定更新无丢字与内存爆仓 | ✅ PASS |
+
+#### Milestone 4 Step 3 实机验证矩阵 (Safari Technology Preview Release 253 / WebKit 22626.1.8.19.2)
+*测试环境：macOS 27.2 (Build 26B5091g) / Safari Technology Preview Release 253 (CFBundleVersion 22626.1.8.19.2)*
+
+| 序号 | 验证项 | 预期行为 | 实测结果 | 判定 |
+| :--- | :--- | :--- | :--- | :--- |
+| Test 1 | Hover 零请求 | 悬停高亮生词展示卡片，本地字典秒级可见，无 AI 网络请求 | 鼠标悬停“Sediment”，卡片即时弹出本地音标与释义，AI 区域仅展示“✨ AI 解释”按钮，控制台与网络面板 0 请求 | **PASS** |
+| Test 2 | 卡片展开零请求 | 保持卡片处于打开与交互状态，不触发 AI | 鼠标在卡片内部移动与停留，网络面板保持 0 个 AI 请求，未发生自发式预取 | **PASS** |
+| Test 3 | 显式点击触发 | 点击“✨ AI 解释”，卡片切换 loading 态并发出流式请求 | 点击按钮后立即变为“取消”按钮，提示“AI 正在分析语境...”，Background 发起真实 Anthropic SSE 流式连接 | **PASS** |
+| Test 4 | 流式打字机渲染 | 增量 chunk 逐帧呈现，平滑自然 | 收到首个 chunk 后正文容器展开，文字以打字机形式平滑追加，无明显跳跃与闪烁 | **PASS** |
+| Test 5 | 完成态收尾 | `AI_DONE` 到达，取消按钮隐藏，释义完整，卡片自适应定位 | 流式完成，取消按钮收起，释义文本完整无乱码，卡片根据高度平滑下移，未越过视口边界 | **PASS** |
+| Test 6 | 用户中途取消 | 流式推流过程中点击“取消”，连接立即掐断 | 推流到一半时点击“取消”，推流即刻终止，文字保留在当前进度，显示“（已取消）”与“重新解释”，无后续文字 | **PASS** |
+| Test 7 | Token 切换隔离 | 推流进行中鼠标移至另一高亮词，旧请求取消且不污染新卡片 | 移至新词“Geology”，旧请求立即中断，新卡片显示 Geology 词典，AI 区域重置为初始态，旧词内容未混入 | **PASS** |
+| Test 8 | 错误安全展示 | 模拟网络断开或 401 报错，脱敏展示错误信息 | 断开网络后点击解释，卡片安全展示“网络连接异常，请检查网络设置”，无 raw URL、堆栈或凭据泄露 | **PASS** |
+| Test 9 | XSS 注入防护 | 模拟恶意包含 `<script>` 的返回内容，纯文本安全转义 | 模拟 payload 返回 `<script>alert(1)</script>`，卡片作为纯文本展示字符，页面无 script 节点注入，无弹窗 | **PASS** |
+| Test 10 | 单例与性能稳定 | 连续触发多次 AI、卡片隐藏与滚动，全局仅单一 DOM | 检查 Elements 面板确认 DOM 树仅有 1 个 `<glint-card>`，多次展开关闭无内存泄漏与残影 | **PASS** |
+
+### 9. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。
 - [ ] 打开 Anki 客户端执行“导入文件”，确认卡片自动建入 `Glint` 牌组，正反面格式完好。
 - [ ] 导出 JSON 备份，确认文件不含 API Key。
 
-### 9. 生命周期稳定性
+### 10. 生命周期稳定性
 - [ ] 连续开启 10 个英文标签页，各页面高亮与卡片均正常工作。
 - [ ] 网页前进/后退/SPA 路由切换，扩展稳定响应。
 - [ ] Safari 休眠并唤醒，扩展功能保持正常。
