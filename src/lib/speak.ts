@@ -11,8 +11,9 @@
  * 换来的收益是**句子**的韵律，而这里只念一个词，那正好是差距最小的地方。
  */
 
-const hasAPI =
-  typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined';
+function hasAPI(): boolean {
+  return typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined';
+}
 
 /**
  * 这台机器上能不能念——API 在，而且**有本机英文语音**。
@@ -25,8 +26,9 @@ const hasAPI =
  * 代价是页面刚打开、语音表还没装好时弹的第一张卡可能没有喇叭，下一张就有了。
  */
 export function canSpeak(): boolean {
-  return hasAPI && !!pickVoice();
+  return hasAPI() && !!pickVoice();
 }
+
 
 /**
  * 挑一个英文嗓子。**只认本机语音，没有就返回 null。**
@@ -44,6 +46,7 @@ export function canSpeak(): boolean {
  * 为一个点击频率的操作背这两个状态不值。
  */
 function pickVoice(): SpeechSynthesisVoice | null {
+  if (!hasAPI()) return null;
   const local = speechSynthesis
     .getVoices()
     .filter((v) => v.localService && v.lang.replace('_', '-').toLowerCase().startsWith('en'));
@@ -57,13 +60,19 @@ function pickVoice(): SpeechSynthesisVoice | null {
  * 「第一次调用」就发生在你悬停的第一个词上——那张卡会没有喇叭，第二张才有。
  * 内容脚本在 document_idle 跑，而卡片要等 220ms 的悬停才弹，中间这段时间足够了。
  */
-if (hasAPI) speechSynthesis.getVoices();
+if (typeof speechSynthesis !== 'undefined') {
+  try {
+    speechSynthesis.getVoices();
+  } catch {
+    // ignore
+  }
+}
 
 /** 单词太短，默认语速听着是「一闪而过」。慢一档，音节才分得开。 */
 const RATE = 0.9;
 
 export function speak(word: string): void {
-  if (!hasAPI || !word) return;
+  if (!hasAPI() || !word) return;
   const voice = pickVoice();
   if (!voice) return; // 只剩网络语音，宁可不出声
   /**
@@ -80,3 +89,18 @@ export function speak(word: string): void {
   utterance.rate = RATE;
   speechSynthesis.speak(utterance);
 }
+
+/**
+ * 停止当前朗读并清空语音队列。
+ * 供卡片隐藏、销毁或页面卸载时调用。
+ */
+export function cancelSpeech(): void {
+  if (!hasAPI()) return;
+  try {
+    speechSynthesis.cancel();
+  } catch {
+    // ignore
+  }
+}
+
+

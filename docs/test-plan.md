@@ -246,3 +246,20 @@
 - [x] 审计确认 262 项自动化回归测试 100% 通过，生产代码 `src/` 保持零变更。
 - [x] 明确标注 macOS 平台 `Option+G` 系统键位冲突与复杂 SPA 极端页面动态扫描为 M5 核心风险区。
 
+### 12. Milestone 5 Workstream 1: 原生离线单词发音回归测试 (M5-W1 TTS Restoration - tests/tts.test.ts)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM (10 项全覆盖测试 100% PASS)*
+
+| 场景 ID | 测试名称与要点 | 核心断言与覆盖边界 | 结果 |
+| :--- | :--- | :--- | :--- |
+| **TTS-01** | 按钮正常渲染 | 本机存在离线英文语音时，卡片展示小喇叭按钮，包含 SVG 图标与 aria-label | ✅ PASS |
+| **TTS-02** | 点击触发朗读 | 点击小喇叭直接调用 `speechSynthesis.speak()`，语速 0.9，语言 en-US | ✅ PASS |
+| **TTS-03** | 连续点击排空队列 | 多次高频点击先执行 `speechSynthesis.cancel()`，不产生语音重叠堆积 | ✅ PASS |
+| **TTS-04** | 严格离线原则 | 仅选取 `localService: true` 的本机离线语音，绝对拒绝网络远程语音 | ✅ PASS |
+| **TTS-05** | 零网络请求 | 单词朗读过程发出 0 个 HTTP/HTTPS 请求，监控 fetch 零调用 | ✅ PASS |
+| **TTS-06** | 卡片隐藏安全 | 朗读期间或朗读后调用 `card.hide()` 绝不抛错，正常解绑 | ✅ PASS |
+| **TTS-07** | 导航销毁清理 | `card.destroy()` 触发 `cancelSpeech()` 清理未决语音队列 | ✅ PASS |
+| **TTS-08** | XSS 恶意注入防护 | 恶意词汇文本（如 `<script>`）通过 pure-text 属性绑定，严禁脚本执行 | ✅ PASS |
+| **TTS-09** | 键盘与无障碍 | 原生 `<button type="button">`，无障碍名称与 `aria-hidden` 图标合规 | ✅ PASS |
+| **TTS-10** | API 缺失降级 | `speechSynthesis` 不存在或不可用时，按钮安全隐藏，卡片正常运行 | ✅ PASS |
+
+

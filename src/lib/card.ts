@@ -2,6 +2,33 @@ import { LEVEL_NAMES, UNKNOWN_LEVEL, type Analysis, type DictEntry, type Explain
 import type { Token } from './scan';
 import { OWN_ELEMENT } from './scan';
 import type { AiStreamClient } from './ai-port';
+import { canSpeak, cancelSpeech, speak } from './speak';
+
+function createSpeakerSvg(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.4');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p1.setAttribute('d', 'M7.2 3.4 4.3 5.9H2.3v4.2h2l2.9 2.5z');
+  p1.setAttribute('fill', 'currentColor');
+  p1.setAttribute('stroke-linejoin', 'round');
+
+  const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p2.setAttribute('d', 'M9.9 6.2a2.7 2.7 0 0 1 0 3.6');
+  p2.setAttribute('stroke-linecap', 'round');
+
+  const p3 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p3.setAttribute('d', 'M11.9 4.3a5.3 5.3 0 0 1 0 7.4');
+  p3.setAttribute('stroke-linecap', 'round');
+
+  svg.append(p1, p2, p3);
+  return svg;
+}
+
 
 /** ECDICT 的考试标签，展示成人话。 */
 export const TAG_LABELS: Record<string, string> = {
@@ -68,6 +95,8 @@ export class Card {
   private lemmaEl: HTMLSpanElement;
   private badgeEl: HTMLSpanElement;
   private phoneticEl: HTMLDivElement;
+  private phoneticTextEl: HTMLSpanElement;
+  private speakBtn: HTMLButtonElement;
   private tagsEl: HTMLDivElement;
   private transEl: HTMLDivElement;
   private aiSectionEl: HTMLDivElement;
@@ -118,9 +147,23 @@ export class Card {
     this.badgeEl.className = 'badge';
     this.headEl.append(this.wordEl, this.lemmaEl, this.badgeEl);
 
-    // 2. 音标行
+    // 2. 音标行与发音朗读按钮 (Milestone 5 M5-W1)
     this.phoneticEl = document.createElement('div');
     this.phoneticEl.className = 'phonetic';
+
+    this.phoneticTextEl = document.createElement('span');
+    this.phoneticTextEl.className = 'phonetic-text';
+
+    this.speakBtn = document.createElement('button');
+    this.speakBtn.type = 'button';
+    this.speakBtn.className = 'speak';
+    this.speakBtn.dataset.act = 'speak';
+    this.speakBtn.title = '朗读';
+    this.speakBtn.setAttribute('aria-label', '朗读发音');
+    this.speakBtn.hidden = true;
+    this.speakBtn.append(createSpeakerSvg());
+
+    this.phoneticEl.append(this.phoneticTextEl, this.speakBtn);
 
     // 3. 标签行
     this.tagsEl = document.createElement('div');
@@ -211,6 +254,11 @@ export class Card {
     return this.token;
   }
 
+  /** 供测试用例检查发音朗读按钮 */
+  get speakButton(): HTMLButtonElement {
+    return this.speakBtn;
+  }
+
   /** 供测试用例检查 ShadowRoot 中的子节点状态 */
   get shadowRoot(): ShadowRoot {
     return this.shadow;
@@ -225,8 +273,10 @@ export class Card {
     this.abortAi();
     this.cancelPendingRaf();
     clearTimeout(this.unmountTimer);
+    cancelSpeech();
     this.host.remove();
   }
+
 
   hide() {
     this.abortAi();
@@ -268,8 +318,13 @@ export class Card {
     this.badgeEl.dataset.level = String(token.level);
 
     // 2. 初始化重置下方词典内容区域
-    this.phoneticEl.textContent = '';
-    this.phoneticEl.hidden = true;
+    this.phoneticTextEl.textContent = '';
+    const speakable = canSpeak();
+    this.speakBtn.hidden = !speakable;
+    if (speakable) {
+      this.speakBtn.setAttribute('aria-label', `朗读 ${token.surface}`);
+    }
+    this.phoneticEl.hidden = !speakable;
     this.tagsEl.replaceChildren();
     this.tagsEl.hidden = true;
     this.transEl.className = 'zh muted';
@@ -467,13 +522,22 @@ export class Card {
   }
 
   private renderEntry(entry: DictEntry | null) {
-    if (entry?.phonetic) {
-      this.phoneticEl.textContent = `/${entry.phonetic}/`;
-      this.phoneticEl.hidden = false;
+    const hasPhonetic = Boolean(entry?.phonetic);
+    if (hasPhonetic) {
+      this.phoneticTextEl.textContent = `/${entry!.phonetic}/`;
+      this.phoneticTextEl.hidden = false;
     } else {
-      this.phoneticEl.textContent = '';
-      this.phoneticEl.hidden = true;
+      this.phoneticTextEl.textContent = '';
+      this.phoneticTextEl.hidden = true;
     }
+
+    const speakable = canSpeak();
+    this.speakBtn.hidden = !speakable;
+    if (speakable && this.token) {
+      this.speakBtn.setAttribute('aria-label', `朗读 ${this.token.surface}`);
+    }
+
+    this.phoneticEl.hidden = !hasPhonetic && !speakable;
 
     const tags = (entry?.tags ?? []).map((t) => TAG_LABELS[t]).filter((t): t is string => Boolean(t));
     this.tagsEl.replaceChildren();
@@ -536,6 +600,8 @@ export class Card {
     if (action === 'known') {
       this.deps.onKnown(this.token.lemma);
       this.hide();
+    } else if (action === 'speak') {
+      speak(this.token.surface);
     } else if (action === 'ai-explain') {
       this.startAi();
     } else if (action === 'ai-cancel') {
@@ -659,6 +725,30 @@ const CSS_TEXT = `
   display: flex; align-items: center; gap: 5px;
   margin-top: 2px; font-size: 12px; color: var(--muted); font-family: ui-monospace, Menlo, monospace;
 }
+
+.speak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: color .12s, background .12s;
+}
+.speak svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+.speak:hover, .speak:focus-visible {
+  color: var(--fg);
+  background: var(--soft);
+}
+
 
 .tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
 .tags span {

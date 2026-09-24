@@ -6,6 +6,22 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 13: Milestone 5 / Workstream 1 — 原生离线单词发音恢复 (Native Offline TTS Restoration) - 2026-09-24
+- **悬浮卡片离线发音 UI 与事件绑定 (`src/lib/card.ts`)**:
+  - 音标行 `<div class="phonetic">` 恢复小喇叭按钮 `<button class="speak" data-act="speak">`，使用纯原生 `document.createElementNS` 构建 SVG 矢量喇叭图标，彻底杜绝 `innerHTML` 与 XSS 隐患。
+  - 直接绑定 `src/lib/speak.ts` 的 `speak(token.surface)`，点击立即播放发音；点击发音不会关闭卡片，亦不触发任何 AI 网络请求或 hover 干扰。
+  - 动态适配与无障碍增强：具备标准 `title="朗读"` 与 `aria-label="朗读 [单词]"`，内部 SVG 标记 `aria-hidden="true"`；支持键盘 Tab 聚焦与回车触发。
+  - 卡片销毁与页面卸载清理：`card.destroy()` 联动调用 `cancelSpeech()`，排空语音队列。
+- **离线语音模块动态环境兼容升级 (`src/lib/speak.ts`)**:
+  - 将 `hasAPI` 升级为动态环境检测函数，增强对运行时动态加载、Safari Technology Preview 及各类测试环境的自适应能力。
+  - 严格保持“零权限、零体积、离线可用”承诺：仅选取系统预装的本机离线英文语音 (`localService === true`)，坚决过滤远程网络语音。
+  - 新增导出 `cancelSpeech()` 函数，便于外部生命周期安全停止播放。
+- **TTS 专项自动化测试套件 (`tests/tts.test.ts`)**:
+  - 新增 10 项全维度自动化测试（TTS-01 至 TTS-10），覆盖按钮渲染、朗读调用、连续点击取消、本地语音过滤、零网络请求断言、隐藏不报错、销毁排空队列、XSS 安全防护、无障碍属性及 API 缺失平滑降级。
+  - 全量自动化测试用例由 262 项增长至 272 项，100% 保持 PASS。
+- **构建与 Safari 验证**:
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功打包。
+
 ### Phase 12: Milestone 5 / Preflight — 功能完备性与架构差距审计 (Feature Completeness & Architecture Gap Audit) - 2026-09-24
 - **功能完备性与架构差距全景审计 (`docs/m5-feature-gap-audit.md`)**:
   - 全面比对 Original Glint upstream (commit `6927753` / `main` 分支) 与当前 Safari Personal Edition (HEAD `caa4c91` / `safari-personal` 分支)。
