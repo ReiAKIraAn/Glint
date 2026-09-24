@@ -643,6 +643,308 @@ test('DW-12: Dynamic Page Framework Pattern — 真实复合场景：初始渲�
   runner.destroy();
 });
 
+test('DW-13: Zero-token dynamic page — 零生词页面全生命周期微更新与多轮波动验证 (RISK-01 Scenarios A..D)', async () => {
+  const container = document.createElement('div');
+  container.id = 'zero-token-app';
+  container.innerHTML = '<main><p>The cat is sleeping on the bed.</p></main>';
+  document.body.appendChild(container);
+
+  const runner = new DynamicWebRunner();
+  runner.init();
+
+  // Scenario A: Zero-token static page + sequential micro-mutations
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.hasRunInitialScan, true);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+
+  // 1. Single character / text update
+  const p = container.querySelector('p')!;
+  p.firstChild!.textContent = 'The dog is sleeping on the bed.';
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1, '单字符/文本微更新不应触发全量重扫');
+  assert.equal(runner.metrics.incrementalScanCount, 1);
+
+  // 2. Small subtree insertion
+  const smallDiv = document.createElement('div');
+  smallDiv.innerHTML = '<p>A bird is in the tree.</p>';
+  container.appendChild(smallDiv);
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1, '小规模子树插入不应触发全量重扫');
+  assert.equal(runner.metrics.incrementalScanCount, 2);
+
+  // 3. Small subtree removal
+  smallDiv.remove();
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1, '小规模子树移除不应触发全量重扫');
+  assert.equal(runner.metrics.incrementalScanCount, 3);
+
+  // Scenario B: Zero -> Token
+  const vocabP = document.createElement('p');
+  vocabP.textContent = 'The tide receded slowly.';
+  container.appendChild(vocabP);
+  await runner.flush();
+  assert.ok(runner.tokens.some((t) => t.surface === 'receded'));
+  assert.equal(runner.metrics.fullRescanCount, 1);
+  assert.equal(runner.metrics.incrementalScanCount, 4);
+
+  // Hover tracker works
+  assert.ok(runner.hover);
+  const mark = highlightMap.get('glint-mark');
+  assert.ok(mark && mark.ranges.length === runner.tokens.length);
+
+  // Scenario C: Token -> Zero
+  vocabP.remove();
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1);
+  assert.equal(runner.metrics.incrementalScanCount, 5);
+
+  // Mutate again while tokens is 0
+  const neutralSpan = document.createElement('span');
+  neutralSpan.textContent = 'Peace and calm.';
+  container.appendChild(neutralSpan);
+  await runner.flush();
+  assert.equal(runner.tokens.length, 0);
+  assert.equal(runner.metrics.fullRescanCount, 1, 'tokens.length === 0 不会隐式导致全量重扫');
+  assert.equal(runner.metrics.incrementalScanCount, 6);
+
+  // Scenario D: Zero -> Token -> Zero -> Token (multi-cycle stability)
+  for (let cycle = 0; cycle < 3; cycle++) {
+    // -> Token
+    const v = document.createElement('p');
+    v.textContent = `Cycle ${cycle}: Sediment accretes in strata.`;
+    container.appendChild(v);
+    await runner.flush();
+    assert.ok(runner.tokens.length >= 2);
+    assert.equal(runner.metrics.fullRescanCount, 1);
+
+    // -> Zero
+    v.remove();
+    await runner.flush();
+    assert.equal(runner.tokens.length, 0);
+    assert.equal(runner.metrics.fullRescanCount, 1);
+  }
+
+  runner.destroy();
+});
+
+test('DW-14: Nested ancestor/descendant mutation batch — 复合嵌套子树包含性裁剪与兄弟保留验证 (RISK-03 Scenarios A..D)', async () => {
+  const runner = new DynamicWebRunner();
+  runner.settings.oncePerPage = false;
+  runner.init();
+
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  // Scenario A: Insert parent -> child -> grandchild in single batch
+  const parent = document.createElement('div');
+  const child = document.createElement('section');
+  const grandchild = document.createElement('p');
+  grandchild.textContent = 'The tide receded slowly as sediment accretes in strata.';
+  child.appendChild(grandchild);
+  parent.appendChild(child);
+  container.appendChild(parent);
+  await runner.flush();
+
+  const recededCount = runner.tokens.filter((t) => t.surface === 'receded').length;
+  const accretesCount = runner.tokens.filter((t) => t.surface === 'accretes').length;
+  const strataCount = runner.tokens.filter((t) => t.surface === 'strata').length;
+  assert.equal(recededCount, 1, '嵌套新增节点仅被单次有效子树扫描，绝无重复 Token');
+  assert.equal(accretesCount, 1);
+  assert.equal(strataCount, 1);
+
+  // 清理 Scenario A
+  parent.remove();
+  await runner.flush();
+
+  // Scenario B: Insert parent + child, then remove parent
+  const parentB = document.createElement('div');
+  const childB = document.createElement('p');
+  childB.textContent = 'Volcanic eruptions desiccated ancient flora.';
+  parentB.appendChild(childB);
+  container.appendChild(parentB);
+  await runner.flush();
+  assert.ok(runner.tokens.some((t) => t.surface === 'desiccated'));
+
+  parentB.remove();
+  await runner.flush();
+  assert.ok(!runner.tokens.some((t) => t.surface === 'desiccated'), '移除父容器后子代 Token 彻底剪除，无陈旧残留');
+
+  // Scenario C: Insert parent + child, then mutate child text
+  const parentC = document.createElement('div');
+  const childC = document.createElement('p');
+  const textC = document.createTextNode('Sediment accretes.');
+  childC.appendChild(textC);
+  parentC.appendChild(childC);
+  container.appendChild(parentC);
+  await runner.flush();
+  assert.ok(runner.tokens.some((t) => t.surface === 'accretes'));
+
+  // Mutate child text
+  textC.data = 'The tide receded.';
+  await runner.flush();
+  assert.ok(!runner.tokens.some((t) => t.surface === 'accretes'), '旧文本 Token 已被替换');
+  assert.ok(runner.tokens.some((t) => t.surface === 'receded'));
+
+  // 清理 Scenario C
+  parentC.remove();
+  await runner.flush();
+
+  // Scenario D: Sibling insertion (A, B, C)
+  const sibA = document.createElement('div');
+  sibA.innerHTML = '<p>Sib A: accretes</p>';
+  const sibB = document.createElement('div');
+  sibB.innerHTML = '<p>Sib B: receded</p>';
+  const sibC = document.createElement('div');
+  sibC.innerHTML = '<p>Sib C: strata</p>';
+  container.appendChild(sibA);
+  container.appendChild(sibB);
+  container.appendChild(sibC);
+  await runner.flush();
+
+  assert.ok(runner.tokens.some((t) => t.node?.parentElement === sibA.firstElementChild));
+  assert.ok(runner.tokens.some((t) => t.node?.parentElement === sibB.firstElementChild));
+  assert.ok(runner.tokens.some((t) => t.node?.parentElement === sibC.firstElementChild));
+
+  runner.destroy();
+});
+
+test('DW-15: Mixed dirtyTextNodes + addedNodes overlap — 文本变动与新增子树重叠混合变动验证 (RISK-03 Scenario E)', async () => {
+  const runner = new DynamicWebRunner();
+  runner.settings.oncePerPage = false;
+  runner.init();
+
+  const container = document.createElement('div');
+  const existingP = document.createElement('p');
+  const existingText = document.createTextNode('Baseline text.');
+  existingP.appendChild(existingText);
+  container.appendChild(existingP);
+  document.body.appendChild(container);
+  await runner.flush();
+
+  // In one batch:
+  // 1. Mutate existing text node outside new subtree
+  existingText.data = 'The tide receded slowly.';
+
+  // 2. Add new subtree
+  const newSubtree = document.createElement('div');
+  const newP = document.createElement('p');
+  const newText = document.createTextNode('Sediment accretes in strata.');
+  newP.appendChild(newText);
+  newSubtree.appendChild(newP);
+  container.appendChild(newSubtree);
+
+  // 3. Simultaneously touch newText inside newSubtree (characterData mutation)
+  newText.data = 'Sediment accretes in ancient strata.';
+
+  await runner.flush();
+
+  // Verify: no missed tokens, no duplicate tokens
+  const recededTokens = runner.tokens.filter((t) => t.surface === 'receded');
+  const accretesTokens = runner.tokens.filter((t) => t.surface === 'accretes');
+  const strataTokens = runner.tokens.filter((t) => t.surface === 'strata');
+
+  assert.equal(recededTokens.length, 1, '外部文本节点的生词被精准捕获');
+  assert.equal(accretesTokens.length, 1, '新增子树内的生词被统一处理，且无重复提取');
+  assert.equal(strataTokens.length, 1);
+
+  const mark = highlightMap.get('glint-mark');
+  assert.ok(mark);
+  assert.equal(mark.ranges.length, runner.tokens.length, '高亮 Range 数与 Token 数严格对齐');
+
+  runner.destroy();
+});
+
+test('DW-STRESS: Large DOM Stress Testing — 1,000 段落 (~50k 字符) 与 10k/50k DOM 节点极限规模压力验证', () => {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  // 场景 1: ~1,000 个段落 (~50,000 字符文本)
+  for (let i = 0; i < 1000; i++) {
+    const p = document.createElement('p');
+    p.textContent = `Paragraph ${i}: The geological strata desiccated as sediment accretes and the tide receded.`;
+    container.appendChild(p);
+  }
+
+  const runner1 = new DynamicWebRunner();
+  runner1.init();
+  assert.equal(runner1.tokens.length, 2500, '1,000 段落触发 MAX_TOKENS = 2500 硬上限截断');
+  assert.ok(runner1.metrics.initialScanDurationMs > 0);
+  runner1.destroy();
+  container.innerHTML = '';
+
+  // 场景 2: 10,000 个 DOM 节点压力测试
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 10000; i++) {
+    const s = document.createElement('span');
+    s.textContent = 'receded ';
+    frag.appendChild(s);
+  }
+  container.appendChild(frag);
+
+  const runner2 = new DynamicWebRunner();
+  runner2.init();
+  assert.ok(runner2.tokens.length <= 2500);
+  runner2.destroy();
+
+  container.remove();
+});
+
+test('DW-LIFECYCLE: Memory & Long-lived Page Lifecycle — 30x SPA 路由、30x 增删循环与 30x 嵌套子树替换长程生命周期', async () => {
+  const runner = new DynamicWebRunner();
+  runner.init();
+
+  const appRoot = document.createElement('div');
+  appRoot.id = 'app-root';
+  document.body.appendChild(appRoot);
+
+  // 1. SPA 路由切换 x 30 次
+  for (let i = 0; i < 30; i++) {
+    appRoot.innerHTML = `<article><h2>Route ${i}</h2><p>The sediment accretes in strata.</p></article>`;
+    if (i % 5 === 0) await runner.flush();
+  }
+  await runner.flush();
+  assert.ok(runner.tokens.length <= 5, '30 次 SPA 路由切换后无陈旧 Token 堆积');
+  assert.ok(runner.tokens.every((t) => t.node?.isConnected));
+
+  // 2. 增删循环 x 30 次
+  const list = document.createElement('ul');
+  appRoot.appendChild(list);
+  for (let i = 0; i < 30; i++) {
+    const li = document.createElement('li');
+    li.textContent = `Item ${i}: The tide receded.`;
+    list.appendChild(li);
+    if (list.children.length > 3) {
+      list.firstElementChild?.remove();
+    }
+    if (i % 5 === 0) await runner.flush();
+  }
+  await runner.flush();
+  assert.ok(runner.tokens.length <= 10, '30 次增删后 Token 账本与活跃 DOM 严格对齐');
+  assert.ok(runner.tokens.every((t) => t.node?.isConnected));
+
+  // 3. 嵌套深层子树替换 x 30 次
+  const treeContainer = document.createElement('div');
+  appRoot.appendChild(treeContainer);
+  for (let i = 0; i < 30; i++) {
+    treeContainer.innerHTML = `<section><div class="outer"><div class="inner"><p>Level ${i}: The basalt intrusion desiccated ancient strata.</p></div></div></section>`;
+    if (i % 5 === 0) await runner.flush();
+  }
+  await runner.flush();
+  assert.ok(runner.tokens.length <= 15, '30 次深层嵌套子树替换后无内存堆积');
+  assert.ok(runner.tokens.every((t) => t.node?.isConnected));
+
+  // 验证高亮 Range 集合与 Token 保持 1:1
+  const mark = highlightMap.get('glint-mark');
+  assert.ok(mark);
+  assert.equal(mark.ranges.length, runner.tokens.length);
+
+  runner.destroy();
+});
+
 /**
  * ============================================================================
  * M5-W5 Step 2: Targeted Dynamic Scanner Regression Suites
