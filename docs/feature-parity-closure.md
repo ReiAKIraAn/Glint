@@ -9,7 +9,7 @@
 本报告对整个项目与 Original Glint (Upstream Chrome `main` 分支) 进行全景对账，严密甄别每一个潜在差异，明确界定其状态并给出范围关闭决议。
 
 - **审计性质**: 只读深度审计 (`src/ diff = 0`)。
-- **自动化测试基线**: 368 / 368 项自动化测试 **100% PASS**。
+- **自动化测试基线**: 368 / 368 项自动化测试全部通过 (PASS, 0 failed, 0 skipped)。
 - **TypeScript 严格类型检查**: **0 错误**。
 - **Safari 生产构建打包**: **PASS (5.92 MB)**。
 - **最终决议**: `PASS WITH KNOWN OPTIONAL GAPS`。
@@ -31,7 +31,7 @@
 | **AI 请求主动取消与隔离** | 无取消机制，后台跑完存盘 | UI 取消按钮 + Port `AI_ABORT` + reader 中止 | `src/lib/card.ts`, `src/lib/ai-port.ts` | Abort 专项测试 | 点击取消即刻中断推流 | **COMPLETE** | Safari 版更完善 | **NO** |
 | **AI 释义本地持久化缓存** | 2000 条 LRU 缓存，同词秒显 | 2000 条 LRU 缓存，同词优先秒显，零网络请求 | `src/lib/explanation-cache.ts` | CACHE-01..20 (20 项) | 同一词再次点击秒显，网络面板零请求 | **COMPLETE** | M5-W2 实现并闭环 | **NO** |
 | **AI 重新生成 (Redo)** | 卡片提供“重新生成”覆盖缓存 | 缓存命中后仅展示释义，无直接“重新生成”按钮 | `src/lib/card.ts` | 暂无该按钮交互 | 暂缺该入口 | **MISSING** | 依赖后续卡片 UI 增补按钮 | **NO (Optional)** |
-| **AI 释义结构化排版** | JSON 拆分为释义/语境/例句字段 | 纯文本流式打字机追加渲染 | `src/lib/card.ts` | 纯文本渲染测试 | 纯文本段落展示 | **INTENTIONALLY SIMPLIFIED** | 为保障流式性能与零 XSS 风险，故意保持纯文本 | **NO** |
+| **AI 释义结构化排版** | JSON 拆分为释义/语境/例句字段 | 纯文本流式打字机追加渲染 | `src/lib/card.ts` | 纯文本渲染测试 | 纯文本段落展示 | **INTENTIONALLY SIMPLIFIED** | 为保障流式性能并降低 HTML 解析与 XSS 风险，故意保持纯文本 | **NO** |
 | **Anki 笔记导出** | 导出已生成的释义与原句为 TSV | 提示“Safari Personal Edition 暂不支持导出” | `src/entrypoints/options/main.ts` | 单元算法测试存在 | 点击给出提示 | **INTENTIONALLY EXCLUDED** | 用户决策 D3=NO，保护隐私不记录原句，故禁用导出 | **NO** |
 | **多服务商生态 (BYOK)** | 预置 11+ 家服务商包装调用 | Provider Adapter 架构解耦，实现 Anthropic | `src/lib/providers/` | ADAPTER-01..14 (14 项) | Anthropic 正常工作 | **INTENTIONALLY DEFERRED** | 架构已就绪，第二服务商按指示暂不实现 | **NO** |
 | **动态单域权限申请** | 保存时申请服务商 host 权限 | 最小权限原则，用户手势触发单域申请与回收 | `src/lib/permissions.ts` | 权限架构专项测试 | 选项页单域申请正常 | **COMPLETE** | Safari 版移除了通配符全站权限申请 | **NO** |
@@ -104,7 +104,7 @@
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | **AI 重新生成 (Redo)** | NO | NO | NO | NO | NO | **YES** | 可推迟作为后续卡片小优化 |
 | **Anki 笔记导出** | NO | NO | YES | **YES** (泄露浏览原句) | NO | **YES** | 明确有意排除 (D3=NO) |
-| **Markdown 结构化排版** | NO | NO | YES | **YES** (XSS 攻击面) | **YES** (重排卡顿) | **YES** | 明确有意保持纯文本 |
+| **Markdown 结构化排版** | NO | NO | YES | **YES** (HTML 解析与 XSS 风险) | **YES** (重排卡顿) | **YES** | 明确有意保持纯文本 |
 | **第二服务商 (OpenAI/Gemini)** | NO | NO | NO (架构就绪) | NO | NO | **YES** | 明确有意推迟至独立里程碑 |
 | **第三方 Shadow DOM 穿透** | NO | NO | YES | NO | **YES** (全量递归遍历) | **YES** | 明确有意保持组件封装 |
 

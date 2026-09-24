@@ -94,16 +94,24 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 | **AI 流式打字机** | Anthropic SSE 增量推流 + rAF 帧合并 + textContent 安全写入 | Automated (E2E-01..14) + Real Safari | **COMPLETE** |
 | **AI 请求主动取消与隔离** | 点击“取消”即刻释放底层 reader，多标签页 Port 独立通信与状态隔离 | Automated + Real Safari | **COMPLETE** |
 | **AI 释义本地持久化** | 2000 条 LRU 缓存，同词优先秒显，底层 storage 写入故障容错 | Automated (CACHE-01..20) + Real Safari | **COMPLETE** |
-| **AI 缓存重新生成 (Redo)** | 缓存命中后直接展示释义，当前未在卡片上提供二次重新生成按钮 | Inspection | **INTENTIONALLY DEFERRED** |
-| **AI 释义结构化排版** | 采用纯原生 `textContent` 纯文本打字机流式输出，杜绝 Markdown/HTML 注入 | Inspection | **INTENTIONALLY SIMPLIFIED** |
+| **AI 缓存重新生成 (Redo)** | 缓存命中后直接展示释义，当前未在卡片上提供二次重新生成按钮 | Inspection | **MISSING (OPTIONAL)** |
+| **AI 释义结构化排版** | 采用纯原生 `textContent` 纯文本打字机流式输出，避免 HTML 解析并降低模型输出标记渲染所伴随的 XSS 风险 | Inspection | **INTENTIONALLY SIMPLIFIED** |
 | **Anki 笔记导出** | 恪守隐私决议 D3=NO，坚决不持久化用户浏览原句，故禁用该导出 | Inspection + UI Assertion | **INTENTIONALLY EXCLUDED** |
-| **多服务商生态 (BYOK)** | Provider Adapter 架构解耦完备，Anthropic 已实现，第二服务商按指示暂不实现 | Automated (ADAPTER-01..14) | **COMPLETE WITH KNOWN LIMITATION** |
+| **多服务商生态 (BYOK)** | Provider Adapter 架构解耦完备，Anthropic 已实现，第二服务商按指示暂不实现 | Automated (ADAPTER-01..14) | **ADAPTER COMPLETE / SECOND PROVIDER DEFERRED** |
 | **动态单域权限申请** | 最小权限原则 (`host_permissions = []`)，选项页用户手势驱动单域授权与回收 | Automated + Real Safari | **COMPLETE** |
-| **键盘导航与遍历** | `Alt+G` / `Alt+Shift+G` 遍历并钉住卡片，`Esc` 关闭；macOS Option 键平台约束 | Automated + Real Safari | **COMPLETE WITH KNOWN LIMITATION** |
-| **工具栏弹窗 (Popup)** | 同步 `page:stats` 高亮词数查询，主开关、域名黑名单联动、等级调节 | Automated + Real Safari (Manual) | **COMPLETE** |
+| **键盘导航与遍历** | `Alt+G` / `Alt+Shift+G` 遍历并钉住卡片，`Esc` 关闭；macOS Option 键平台约束 | Automated + Real Safari | **COMPLETE WITH PLATFORM TRADEOFF** |
+| **工具栏弹窗 (Popup)** | 同步 `page:stats` 高亮词数查询，主开关、域名黑名单联动、等级调节 | Real Safari (Manual Observation) | **COMPLETE** |
 | **动态网页增量扫描** | 局部子树与 Text 脏节点增量扫描，零生词守卫与祖先剪枝，突发回退机制 | Automated (DW-01..15) + Real Safari | **COMPLETE WITH KNOWN LIMITATION** |
 | **Shadow DOM 边界隔离** | 第三方 open/closed Shadow DOM 不穿透，扩展自身卡片隔离且零观察者递归 | Automated (SHADOW-01..07) + Real Safari | **INTENTIONALLY BOUNDED** |
 | **iframe 边界隔离** | `window.top !== window.self` 顶层守卫 + `OPAQUE_TAGS` 拒绝，零跨 Frame 消息 | Automated (IFRAME-01..06) + Real Safari | **INTENTIONALLY BOUNDED** |
+
+### 功能对等归类总结 (Canonical Classification Summary)
+- **Complete (14 项)**: CEFR 单词扫描识别、国内考纲静音/备考、CSS Custom Highlight 高亮、光标生词命中反查、悬浮卡片展示本地词典、熟词标记与动态消词、原生离线发音 (TTS)、AI 流式打字机、AI 请求主动取消与隔离、AI 释义本地持久化、动态单域权限申请、工具栏弹窗 (Popup)、动态网页增量扫描（附带已知突变风暴性能限制）、Provider Adapter 解耦架构。
+- **Intentionally Bounded (2 项)**: 第三方 Shadow DOM 边界隔离、iframe 边界隔离。
+- **Intentionally Excluded (1 项)**: Anki 笔记导出（恪守 D3=NO 隐私决策，坚决不持久化用户浏览原句）。
+- **Intentionally Simplified (1 项)**: AI 释义结构化排版（采用纯原生 `textContent` 流式打字机，避免 HTML 解析并降低模型输出标记渲染所伴随的 XSS 风险）。
+- **Intentionally Deferred (1 项)**: 第二模型服务商接入（OpenAI / Gemini，Adapter 抽象已完成，第二实现推迟）。
+- **Missing / Optional (1 项)**: AI 缓存重新生成按钮 (AI Redo)。
 
 ---
 
@@ -111,7 +119,7 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 
 1. **AI 释义纯文本流式渲染 vs 结构化 JSON 模版 (`INTENTIONALLY SIMPLIFIED`)**:
    - 原版 Chrome 使用 Vercel AI SDK 非流式返回 JSON，前端拼装多个 DOM 标签。
-   - Safari 版升级为真实 SSE 流式打字机，采用纯原生 `textContent` 增量追加。此举不仅规避了第三方 Markdown 解析库带来的 XSS 注入风险，还消除了 WebKit 在高频流式推流下的样式重排与 DOM 抖动开销。
+   - Safari 版升级为真实 SSE 流式打字机，采用纯原生 `textContent` 增量追加。此举避免了引入第三方 HTML/Markdown 解析器，显著降低了渲染模型生成标记时伴随的 XSS 风险，同时消除了 WebKit 在高频流式推流下的样式重排与 DOM 抖动开销。
 2. **Anki 笔记导出禁用 (`INTENTIONALLY EXCLUDED`)**:
    - 原版 Chrome 在本地存储中明文记录用户阅读网页的完整原句 (`sentence`)。
    - Safari Personal Edition 在 M5-W2 中执行了隐私强化：`local:explanations` 仅允许存储 `{ word, explanation, updatedAt }`，严禁保存用户访问的原句与上下文。用户正式裁决 **D3 = NO**。由于无原句数据，Anki 导出被明确隔离并提示不支持。
@@ -137,21 +145,27 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 
 通过静态代码依赖审计、产物解包审查与全量自动化安全用例核验：
 
-1. **凭据单向隔离 (Credential Isolation)**:
-   - API Key 独占保存于 Background Service Worker 的 `local:apiKeys` 中。
-   - Content Script 生产产物中彻底移除任何 API Key、Header 鉴权逻辑或服务商客户端代码。
-2. **凭据零泄露 (Zero Credential Leakage)**:
-   - 校验确认：API Key **绝不进入页面 DOM 树**；**绝不进入 Content Script UI**；**绝不进入 AI Prompt 语境**；**绝不出现在请求 URL 或 Query 参数中**；在日志与错误呈现中一律经过 `redactSecrets` 强力脱敏为 `[REDACTED]`。
-3. **DOM 注入防护 (XSS Surface Mitigation)**:
-   - 悬浮卡片所有展示内容（单词、变形、音标、释义、例句、错误信息）一律使用原生 `.textContent` 写入。
-   - 全代码库彻底消除 `innerHTML`、`outerHTML` 与 `eval()`，消除脚本注入通道。
+1. **凭据存储与访问边界 (Credential Storage & Access Boundary)**:
+   - 凭据持久化存储于扩展隔离存储区（`browser.storage.local` 下的 `local:apiKeys`）。
+   - 在运行时，凭据仅在 Background Service Worker 内存中按需读取，并通过 Provider Adapter 发起网络请求。
+   - 前台 Content Script 无论是内存、代码产物还是运行时消息流均不接收该凭据。
+2. **凭据传输与网络隔离 (Credential Transport & Network Isolation)**:
+   - 服务商 API 请求完全由 Background / Provider Adapter 路径发起并附加鉴权请求头（例如 `x-api-key`）。
+   - 凭据绝不置于请求 URL 或 Query 参数中；
+   - 凭据绝不包含在向 Content Script 发送的 UI 消息或 Port 通信载荷中；
+   - 凭据绝不注入页面 Light DOM 或 Shadow DOM 树；
+   - 异常抛出与控制台输出中，所有错误信息均经过 `redactSecrets` 脱敏处理。
+3. **DOM 注入防护 (XSS Risk Reduction)**:
+   - 悬浮卡片展示内容（单词、变形、音标、释义、例句、错误信息）一律使用原生 `.textContent` 写入。
+   - 避免引入外部 HTML/Markdown 解析器，显著降低了渲染模型生成标记时伴随的 XSS 风险。
+   - 在审计范围内未引入 `innerHTML`、`outerHTML` 或 `eval()`。
 4. **通信沙箱安全性 (IPC Boundary)**:
    - 页面与后台通信仅采用强类型单向消息与 WebExtension Port 长连接，零 `window.postMessage`，零跨 Frame 消息穿透。
 5. **最小权限原则 (Least-Privilege)**:
    - `manifest.json` 中 `host_permissions` 声明为空数组；外部云端服务商域名仅在用户保存配置时通过用户手势进行单域动态授权。
 
 > **安全审定结论**:
-> **No security issue identified in the audited scope.**
+> **No security issue was identified in the audited credential, DOM rendering, messaging, permission, and AI request paths.**
 
 ---
 
@@ -181,7 +195,7 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 ## 9. Performance Evidence (性能证据与已知限制)
 
 ### 量化基准数据
-- **初始全量扫描耗时**: `56.96 ms` (约 400 生词).
+- **初始全量扫描耗时**: 测试样本页面（如 Wikipedia 典型样本文档，约 400 候选生词）完成耗时约 `56.96 ms`（为受控测试环境下的代表性测量值，非任意复杂网页结构的普适性能保证）。
 - **增量扫描路径 (`records.length <= 250`)**:
   - 1 条突变: `48.34 ms`
   - 10 条突变: `54.49 ms`
@@ -189,23 +203,27 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
   - 100 条突变: `179.18 ms`
   - 250 条突变: `566.24 ms`
 - **突变风暴全量回退路径 (`records.length > 250`)**:
-  - 251 条突变: `~907.53 ms`
-  - 500 条突变: `~2290.35 ms`
-  - 1000 条突变: `~7086.57 ms` (触发 2500 MAX_TOKENS 硬上限熔断)
+  - 251 条突变: `~907.53 ms` (约 0.91s)
+  - 500 条突变: `~2290.35 ms` (约 2.29s)
+  - 1000 条突变: `~7086.57 ms` (约 7.09s，触发 2500 MAX_TOKENS 硬上限熔断)
 - **大规模 DOM 树基准**:
-  - ~10,000 DOM 节点：初始扫描约 `88 ms`。
+  - ~10,000 DOM 节点：初始扫描约 `88 ms`（测试用例代表性基准）。
   - ~50,000 DOM 节点：深度树遍历完成，无堆栈溢出。
 - **边界突变观察者开销**:
   - Open ShadowRoot 50 节点插入：主文档 observer 唤醒 **0 次**。
   - iframe 独立文档 50 节点插入：主文档 observer 唤醒 **0 次**。
   - Glint Card 50 次内部修改：增量扫描 **0 次**（首行守卫阻断）。
+- **交互与派发性能**:
+  - 悬停卡片弹出延迟: `< 2ms`（测试基准测量值）。
+  - 本地离线发音调用开销: `< 10ms`（测试基准测量值）。
+  - AI 流式 UI 渲染开销: `AI stream UI dispatch/render overhead: < 2ms under the tested batching benchmark`（度量本地 UI 派发与 rAF 批处理开销，非端到端网络延迟）。
 
 ### 性能声明与限制规范
 - **已知性能限制 (Known Performance Limitation)**:
-  - 单批次突变超过 250 条时回退至 `run()`，在大规模 DOM 页面上存在明显的 TreeWalker 主线程遍历开销。此项在 M5-W5 中维持现状（DEFERRED）。
+  - 单批次突变超过 250 条时回退至 `run()`，在大规模 DOM 页面上存在明显的 TreeWalker 主线程遍历开销（如 251 条突变约 0.91s，500 条约 2.29s，1000 条约 7.09s）。此项在 M5-W5 中维持现状（DEFERRED），由 2500 MAX_TOKENS 硬上限、单飞互斥锁与 200ms 防抖提供兜底防护。
 - **未验证项声明 (Unverified Claims Policy)**:
   - **Formal Long Task timeline tracing**: 无头 CLI 测试环境下无法获取真实 WebKit Performance Timeline 分片连续追踪，标记为 **UNVERIFIED**。
-  - **JSC 堆内存与 GC 绝对证明**: 标记为 **UNVERIFIED**（准确陈述：*No observed monotonic growth in the tested token/highlight/card state across the tested cycles. Formal heap/GC leak verification was not available.*）。
+  - **JSC 堆内存与 GC 证明**: 标记为 **UNVERIFIED**（准确陈述：*No observed monotonic growth in the tested token/highlight/card state across the tested cycles. Formal heap/GC leak verification was not available.*）。
 
 ---
 
@@ -219,28 +237,35 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 - **WebKit SourceVersion**: 7626001008019002
 - **Latest STP Status**: **UNVERIFIED** (运行于本地已安装版本，未核验 Apple 官方最新发布状态).
 
-### Critical-Path 用户全链路回归 (RC-01 至 RC-13)
-| 编号 | 关键交互路径 | 实测表现 | 判定 |
-| :--- | :--- | :--- | :---: |
-| **RC-01** | Core scan | 静态长文标准生词分词精准，代码块黑话自动跳过 | **PASS** |
-| **RC-02** | Highlight | CSS Custom Highlight 文本高亮上色正常，无 DOM 节点包裹侵入 | **PASS** |
-| **RC-03** | Vocabulary card | 悬停生词秒级弹出 Shadow DOM 卡片，本地 5.7 万词离线字典即时展示 | **PASS** |
-| **RC-04** | Native TTS | 点击发音喇叭正常触发本地离线语音朗读，零网络请求 | **PASS** |
-| **RC-05** | AI streaming | 点击“✨ AI 解释”发起流式网络请求，平滑打字机逐字输出 | **PASS** |
-| **RC-06** | AI cancellation | 流式期间点击“取消”即刻掐断网络 reader 并退出 loading 态 | **PASS** |
-| **RC-07** | AI cache hit | 已解释生词再次点击优先命中 `local:explanations`，网络面板 0 请求 | **PASS** |
-| **RC-08** | SPA navigation | 单页虚拟路由切换后词元全部安全重置，新页面重新扫描 | **PASS** |
-| **RC-09** | Dynamic mutation | 动态插入段落或列表增量捕获新词，已存在词元不闪烁 | **PASS** |
-| **RC-10** | Permissions | 设置页输入 API Key 用户手势触发单域权限申请，拒绝时安全阻断 | **PASS** |
-| **RC-11** | Popup | 工具栏点击展开弹窗，当前页面高亮词数与黑名单状态准确呈现 | **PASS (Manual)** |
-| **RC-12** | Shadow DOM boundary | 第三方 open/closed Shadow DOM 保持不透明，卡片自身样式完全隔离 | **PASS** |
-| **RC-13** | iframe boundary | 同源/跨域/广告 iframe 保持不透明，零跨 Frame 消息与零 AI 调用 | **PASS** |
+### Critical-Path 交互链路回归证据 (RC-01 至 RC-13)
+
+| 编号 | 关键交互路径 | 验证模式 / 证据分类 | 实测表现 | 判定 |
+| :--- | :--- | :--- | :--- | :---: |
+| **RC-01** | Core scan | Automated test evidence + Real Safari script verification | 静态长文标准生词分词精准，代码块黑话自动跳过 | **PASS** |
+| **RC-02** | Highlight | Automated test evidence + Real Safari script verification | CSS Custom Highlight 文本高亮上色正常，无 DOM 节点包裹侵入 | **PASS** |
+| **RC-03** | Vocabulary card | Automated test evidence + Real Safari script verification | 悬停生词弹出 Shadow DOM 卡片，本地 5.7 万词离线字典即时展示 | **PASS** |
+| **RC-04** | Native TTS | Automated test evidence (TTS-01..10) + Real Safari manual audio observation | 点击发音喇叭正常触发本地离线语音朗读，零网络请求 | **PASS** |
+| **RC-05** | AI streaming | Automated test evidence (E2E-01..14) + Real Safari script verification | 点击“✨ AI 解释”发起流式网络请求，平滑打字机逐字输出 | **PASS** |
+| **RC-06** | AI cancellation | Automated test evidence + Real Safari script verification | 流式期间点击“取消”即刻掐断网络 reader 并退出 loading 态 | **PASS** |
+| **RC-07** | AI cache hit | Automated test evidence (CACHE-01..20) + Real Safari script verification | 已解释生词再次点击优先命中 `local:explanations`，网络面板 0 请求 | **PASS** |
+| **RC-08** | SPA navigation | Automated test evidence (DW-01..15) + Real Safari script verification | 单页虚拟路由切换后词元全部安全重置，新页面重新扫描 | **PASS** |
+| **RC-09** | Dynamic mutation | Automated test evidence (DW-01..15) + Real Safari script verification | 动态插入段落或列表增量捕获新词，已存在词元不闪烁 | **PASS** |
+| **RC-10** | Permissions | Automated test evidence + Real Safari manual gesture observation | 设置页输入 API Key 用户手势触发单域权限申请，拒绝时安全阻断 | **PASS** |
+| **RC-11** | Popup | Real Safari manual observation (GUI browser-action interaction) | 工具栏点击展开弹窗，当前页面高亮词数与黑名单状态准确呈现 | **PASS (Manual)** |
+| **RC-12** | Shadow DOM boundary | Automated test evidence (SHADOW-01..07) + Real Safari script verification | 第三方 open/closed Shadow DOM 保持不透明，卡片自身样式完全隔离 | **PASS** |
+| **RC-13** | iframe boundary | Automated test evidence (IFRAME-01..06) + Real Safari script verification | 同源/跨域/广告 iframe 保持不透明，零跨 Frame 消息与零 AI 调用 | **PASS** |
+
+### 证据类型明确区分 (Evidence Taxonomy)
+- **Automated test evidence (自动化测试证据)**: 368 项自动化用例在模拟/无头测试环境中执行的严格断言验证（涵盖核心分词、CSS 双轨容灾、Provider Adapter 契约、脱敏与存储上限等）。
+- **Real Safari Technology Preview verification (实机 Safari 验证)**: 在宿主 macOS 上针对实际安装的 Safari Technology Preview (Release 253) 环境执行的脚本化与实际页面运行验证。
+- **Real Safari manual observation (实机人工交互观察)**: 针对无法在 CLI 下模拟的原生宿主 GUI 交互（例如工具栏点击展开 Popup 界面、系统预装英文语音发音听觉确认、用户手势权限弹窗确认）所执行的实机交互观察。
+- **Unverified items (明确未验证项)**: 明确标识由于测试环境限制未被形式化验证的事项（包括无头环境下毫秒级 Long Task timeline 分片追踪、JavaScriptCore 堆快照与 GC 代际回收分析、以及本地 STP Release 253 与 Apple 官方最新发布版本的一致性核验）。
 
 ---
 
 ## 11. Test Coverage & Inventory (测试资产清单)
 
-全项目共有 **368 项** 自动化测试，分布于 16 个测试套件中，通过率 **100% (368/368 PASS)**：
+全项目共有 **368 项** 自动化测试，分布于 16 个测试套件中，全量通过 (368/368 PASS, 0 failed, 0 skipped)：
 
 1. **核心算法与生命周期**:
    - `scan.test.ts` (14 项): 词形还原、考纲静音、代码标识符过滤、专有名词与缩写判定。
@@ -275,15 +300,17 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 ## 12. Known Limitations (已知限制汇总)
 
 1. **大批量 Mutation 突发全量重扫性能退化 (`RISK-02`)**:
-   - 单批次突变超过 250 条时回退至 `run()`，在超大规模 DOM 页面上存在明显的 TreeWalker 遍历耗时。该策略在功能层面确保了数据一致性，但极端大批量突发存在性能损耗。
+   - 单批次突变超过 250 条时回退至 `run()`，在超大规模 DOM 页面上存在明显的 TreeWalker 遍历耗时（251 条突变 ≈ 0.91s，500 条 ≈ 2.29s，1000 条 ≈ 7.09s）。该策略在功能层面确保了数据一致性，但极端大批量突发存在性能损耗。
 2. **WebKit Service Worker 慢流生命周期边界**:
    - 在极端慢流或长时间空闲下，WebKit Service Worker 存在被系统冻结或挂起的潜在风险。当前已通过应用层 60s 硬超时兜底，坚决不引入伪造心跳等 keep-alive hack。
-3. **macOS 平台快捷键约束**:
+3. **macOS 平台快捷键与字符输入合成冲突**:
    - 在 macOS 上 `Alt` 键即 `Option` 键，在文本输入区域可能与系统特殊字符输入（如 `Option+G` -> `©`）产生平台级键位冲突。
-4. **形式化 Long Task 追踪与堆快照未自动化验证**:
-   - 无头自动化测试环境下缺少毫秒级 WebKit Performance Timeline 分片连续追踪以及底层 JavaScriptCore GC 真实回收证明。
-5. **Safari Technology Preview 版本权威性**:
-   - 实测环境为 STP Release 253，该版本是否为 Apple 当前发布的最新版本保持为未验证状态。
+4. **第三方 Shadow DOM 与 iframe 封闭隔离**:
+   - 第三方 open/closed Shadow DOM 和嵌套 iframe 内容保持完全不透明，不进行穿透扫描与跨 Frame 消息交互。
+5. **形式化 Long Task 追踪与堆快照未自动化验证**:
+   - 无头自动化测试环境下缺少毫秒级 WebKit Performance Timeline 分片连续追踪以及底层 JavaScriptCore GC 真实代际回收证明。
+6. **Safari Technology Preview 版本权威性未独立核验**:
+   - 实测环境为本地安装的 STP Release 253，该版本是否为 Apple 当前发布的最新版本保持为未独立核验状态。
 
 ---
 
@@ -340,9 +367,9 @@ M5-W1 Native Offline TTS:     9068d13 feat(safari): restore native offline TTS
 ```
 
 ### 决议依据 (Rationale):
-1. **核心工作流 100% 畅通**: 分词扫描、文本高亮、悬浮卡片、本地词典、离线发音、AI 流式推流、主动取消、本地持久化缓存、动态增量扫描全链路功能完备，无崩溃无阻塞。
+1. **核心工作流全链路验证通过**: 分词扫描、文本高亮、悬浮卡片、本地词典、离线发音、AI 流式推流、主动取消、本地持久化缓存、动态增量扫描全链路功能完备，经自动化与实机测试验证无崩溃无阻塞。
 2. **生产代码严格冻结**: `src/` 生产代码零变动，代码质量经过全量 368 项自动化测试与 TypeScript 严格检查验证。
-3. **架构边界清晰严密**: 第三方 Shadow DOM 与 iframe 设立了深思熟虑的产品边界；最小权限与 Background 凭据单向隔离彻底消除了明文泄漏风险。
+3. **架构边界清晰严密**: 第三方 Shadow DOM 与 iframe 设立了深思熟虑的产品边界；最小权限与 Background 凭据存储访问隔离显著降低了未授权访问与明文泄漏风险。
 4. **已知限制透明归档**: 完整量化并如实记录了大批量突发回退性能开销、WebKit Service Worker 生命周期及测试环境边界，不作未经证实的过度断言。
 5. **候选收口清单无真阻塞项**: `MUST FIX BEFORE CLOSURE = NONE`。
 
