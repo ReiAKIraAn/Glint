@@ -285,7 +285,39 @@
 | **CACHE-16** | 存储写入失败容错 | 即使底层 storage 抛出异常（配额超限），`AI_DONE` 仍正常发至客户端，UX 不受阻 | ✅ PASS |
 | **CACHE-17** | 敏感字段绝对隔离 | 严格断言 storage 仅有 3 个允许字段，`PRIVATE_DOCUMENT_12345` 句子及 API Key 绝对零泄露 | ✅ PASS |
 | **CACHE-18** | 旧 Schema 安全清洗 | 检测到包含 `sentence`/`analysis` 的历史数据自动丢弃清洗，保证敏感原句不残留 | ✅ PASS |
-| **CACHE-19** | 并发变更安全串行 | 模拟多标签页同时并发 `putExplanation`，通过 Promise 任务队列保证数据无并发覆盖丢失 | ✅ PASS |
+| **CACHE-19** | 并发变更单运行时串行 | 单 JS 运行时内部并发执行 `putExplanation`，通过 Promise 任务队列保证同运行时串行执行 | ✅ PASS |
 | **CACHE-20** | 缓存命中零 AI 调用 | 命中缓存时卡片直接进入 `done` 态并通过 `textContent` 展现，`aiClient.start()` 调用严格为 0 | ✅ PASS |
+
+### 14. Milestone 5 Workstream 2 验证闭环与核查记录 (M5-W2 Verification Closure)
+*自动化运行环境：Node.js v22.14.0 + Happy-DOM (297/297 PASS)*
+*实机目标环境：macOS 27.2 (Build 26B5091g) / Safari Technology Preview Release 253 (CFBundleVersion 22626.1.8.19.2, WebKit 22626.1.8.19.2)*
+
+#### 1. 验证基线与范围
+- **Production Code Changes**: 0 行变更，严格保持工作区纯净。
+- **Automated Tests**: 全量 297 项自动化测试（含 5 项验证与测算测试）全部通过。
+- **Typecheck & Build**: TypeScript strict 检查 0 错误，Safari Extension 构建无 warning/error 打包成功。
+
+#### 2. 核心核查矩阵 (VC-01 至 VC-08)
+
+| 场景 ID | 核查维度与要点 | 核心证据与边界说明 | 判定 |
+| :--- | :--- | :--- | :--- |
+| **VC-01** | Real Safari MISS → 写入存储 | 待实机端到端手动验证：未缓存生词点击 AI 解释，推流完成写入 `local:explanations`，且仅含 3 项字段 | ⚠️ UNVERIFIED (实机待测) / ✅ PASS (自动化 CACHE-03, 17) |
+| **VC-02** | Real Safari HIT → 零请求 | 待实机端到端手动验证：再次点击已缓存词汇，秒级展现，网络面板 0 个 `api.anthropic.com` 请求 | ⚠️ UNVERIFIED (实机待测) / ✅ PASS (自动化 CACHE-04, 20) |
+| **VC-03** | Real Safari Clear → MISS | 待实机端到端手动验证：Options 页面清空释义后，重新请求该词再次发起网络流，且不触碰 API Keys | ⚠️ UNVERIFIED (实机待测) / ✅ PASS (自动化 CACHE-09, 10) |
+| **VC-04** | Real Safari 跨 Tab 持久化 | 待实机端到端手动验证：Tab A 解释词汇 A，Tab B 悬停点击直接命中；双 Tab 并发解释不覆盖 | ⚠️ UNVERIFIED (实机待测) / ✅ PASS (自动化 CACHE-19, VC-08-A) |
+| **VC-05** | Real Safari 进程重启持久化 | 待实机端到端手动验证：完全退出 Safari TP 进程并重新启动后，已缓存释义依然有效 | ⚠️ UNVERIFIED (实机待测) |
+| **VC-06** | Real Safari 真实隐私核查 | 待实机端到端手动验证：Web Inspector 搜索 `local:explanations`，断言无网页原句与上下文残留 | ⚠️ UNVERIFIED (实机待测) / ✅ PASS (自动化 CACHE-17) |
+| **VC-07** | LRU 同毫秒时间戳行为 | `capExplanationEntries` 面对 2005 条同毫秒条目，按 ECMAScript stable sort 严格截断至 2000 条，行为确定无随机丢失 | ✅ PASS (VC-07-A, B, C) |
+| **VC-08** | 并发边界与队列作用域 | A: 单 JS 运行时内部串行化 (VERIFIED)；B: AI 流完成写入统一集中在 SW (VERIFIED)；C: 跨 Context 存储原子性 (UNVERIFIED) | ✅ PASS (架构核查闭环) |
+
+#### 3. 存储容量与 Safari 配额声明修正
+- **实测数据体积 (Empirical Measurement)**:
+  - 测算 2,000 条包含典型双语地学/社科/自然科学释义（每条约 200~300 字符）的完整 `local:explanations` 序列化 JSON 载荷。
+  - **实测总字节数**: `518,281 字节` (约为 `506.13 KB` / `0.49 MB`)。
+- **Safari 存储配额说明**:
+  - WebKit 对 `browser.storage.local` 的真实配额上限因 WebKit 具体版本与平台策略而异，目前官方未公开硬性保证值。
+  - 因此本阶段将“Safari 配额一定为 5MB/10MB”的断言修正为：**Storage quota: UNVERIFIED**。
+  - 506 KB 的实际数据体积在常规浏览器本地存储中处于极轻量水准，但不能推导为 Safari 的绝对上限保证。
+
 
 

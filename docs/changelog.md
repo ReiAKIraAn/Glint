@@ -14,7 +14,7 @@
 - **核心本地缓存模块 (`src/lib/explanation-cache.ts`)**:
   - 实现基于 `local:explanations` 的 2,000 条上限容量与 LRU 淘汰机制 (`capExplanationEntries`)，超过容量时按 `updatedAt` 倒序截断淘汰最旧记录。
   - 统一词汇规范化 Key (`normalizeWordKey`)：统一小写并裁剪前后空格，确保同一单词不同大小写形态命中同一槽位。
-  - 串行化任务队列 (`enqueue`)：保证读-改-写操作按序执行，杜绝跨异步流程数据覆盖。
+  - 串行化任务队列 (`enqueue`)：在单个 JavaScript 运行时（如 Background Service Worker）内部将读-改-写任务加入 Promise 队列串行化执行；明确跨 Context（如 Background 与 Options 同时并发写）底层 WebExtension storage 不提供数据库事务级原子性。
   - 提供了 `getExplanation`, `putExplanation`, `deleteExplanation`, `clearExplanations`, `getAllExplanations` 纯净 API。
 - **Background 持久化写入边界 (`src/lib/ai-port.ts`, `src/entrypoints/background.ts`)**:
   - 将 Background 设为核心持久化写入入口：当且仅当 Provider SSE 推流完整完成、非空且未发生 Abort / 错误时，调用 `putExplanation` 写入。
