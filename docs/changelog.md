@@ -6,25 +6,24 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
-### Phase 7: Milestone 4 — AI 语境释义架构设计与风险审查 (Architecture Design & Risk Review) - 2026-09-24
-- **架构设计决策沉淀 (ADR 002)**:
-  - 新增 `docs/adr/002-ai-explanation-architecture.md`：详细论证并沉淀 Milestone 4 核心设计。
-  - 四大 AI 触发机制全面对比（Hover 自动、卡片内点击、快捷键、混合策略）横跨 9 个评估维度，明确待决产品选项。
-  - 确立全链路端到端时序图与责任矩阵，坚守 API Key 仅 Background 驻留，网页/DOM/IPC Payload 零密钥暴露。
-- **WebKit / Safari Service Worker 生命周期与流式协议设计**:
-  - 审查 Safari TP 253 WebKit 规范：基于 `browser.runtime.connect` 长连接维护流式生命周期，监听 `port.onDisconnect` 自动终止未决网络请求。
-  - 确立结构化 IPC 流式消息协议：`AI_START`、`AI_CHUNK`、`AI_DONE`、`AI_ERROR`、`AI_ABORT`。
-  - 引入 `requestId` 机制与 `Map<string, AbortController>`，彻底消除 Token A → Token B 快速悬停切换时的竞态条件与残余延迟推送。
-- **安全与防御深度 (Security by Design)**:
-  - 上下文数据边界设计：推荐仅发送“目标单词 + 当前单句 (`sentenceAround`)”，兼顾消歧准确度与隐私最小化。
-  - Prompt Injection 防御体系：系统 Prompt 最高优先级硬约束、XML 实体标签严格隔离、模型零工具调用权限。
-  - 渲染安全：延续 Milestone 2 经实机验证的纯 `textContent` 结构化装配，零外部 Markdown 依赖，绝对免疫 XSS。
-- **性能与节流设计**:
-  - `requestAnimationFrame` 增量缓冲区节流合并，将流式高频 DOM 写入与屏幕帧率同步；复用 Shadow DOM 容器，零节点重建，零触发页面生词重扫。
-- **Milestone 4 测试矩阵与文档同步**:
-  - `docs/test-plan.md` 扩充 18 项覆盖流式交互、异常恢复、超时、竞态取消、注入与 XSS 防护的专项测试矩阵。
-  - `docs/architecture.md` 同步更新流式架构时序与安全模型。
-  - **生产代码 (`src/`) 保持 100% 未修改，静待用户确认产品决策**。
+### Phase 7: Milestone 4 — AI 语境释义架构设计与协议冻结审查 (Architecture & Protocol Freeze Review) - 2026-09-24
+- **产品决策正式冻结 (Frozen Product Decisions - 方案 B)**:
+  - 确认采用**卡片内点击“AI 解释”按钮**作为唯一触发路径；Hover 本身绝对零网络外发，本地词典秒级即时展示。
+  - 第一版严格保证**全局至多单一活动请求**，杜绝多路复用；用户切换 Token 即刻掐断旧请求。
+  - 明确“八不”收敛边界：不做预取、不做快捷键、不做重新生成、暂不做持久化/LRU 缓存、不引入 Markdown/HTML 富文本库、不引入新第三方依赖、无 Swift bridge、单一 Provider (Anthropic)。
+- **Safari TP Service Worker 生命周期客观评级与纠偏**:
+  - 对 WebKit SW 行为客观分类：`fetch/ReadableStream` 保持存活与活跃连接防挂起评为 **UNVERIFIED**（必须通过真实 STP 慢流/停流实验验证）；`AbortController` TCP 释放与约 30s 空闲挂起评为 **PARTIALLY VERIFIED**。
+- **协议极简化与载荷严密化 (IPC Protocol Freeze)**:
+  - `docs/adr/002-ai-explanation-architecture.md` 更新为冻结版规范。
+  - 剔除 `AI_DONE` 中的冗余 `fullText` 字段，杜绝重复传输已在本地累加的字符串。
+  - 明确硬性长度限制 `MAX_RESPONSE_CHARS = 4,000` 字符，超限立即 abort，卡片保留已输出文本并标记截断。
+  - 保留单调递增 `requestId` 作为单请求下的世代守卫 (Epoch Guard)，彻底过滤网络迟到残余 chunk。
+- **安全模型澄清与上下文冻结 (Security & Context Boundary)**:
+  - 明确澄清：XML 实体标签与分隔符仅为输入组织手段，**绝非安全边界**。真实安全边界为凭据隔离、工具隔离 (No Tool Use)、语境最小化与纯 `textContent` 输出处理。
+  - 上下文严格锁定为 `word + current sentence`（源自 `scan.ts` 中 `sentenceAround` 算法，最大 260 字符，严禁跨越块级元素，不支持 iframe 与外部 shadow DOM）。
+- **测试矩阵与文档同步 (19 项场景规划)**:
+  - `docs/test-plan.md` 与 `docs/architecture.md` 全面同步，明确区分 Node 自动化与 Safari TP 实机必须项。
+  - **生产代码 (`src/`) 保持 100% 未修改，静待下一阶段指令**。
 
 ### Phase 6: Milestone 3 — 最小安全网络切片与 Safari 权限闭环 (Secure Provider Network Slice) - 2026-09-24
 - **Safari-First 最小权限与清单严密化 (Least-Privilege)**:

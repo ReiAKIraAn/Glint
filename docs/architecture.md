@@ -102,12 +102,13 @@ sequenceDiagram
 * **API Key 绝对隔离区**:
   - API Key 仅保存在 `local:apiKeys` 中，仅 Background 与 Options 有权读写。
   - Content Script 绝无权限访问密钥存储，网络请求完全由 Background 代理。
-* **长连接流式通道与生命周期管理 (Port-based Streaming)**:
-  - 详细设计与风险审查见 [ADR 002](adr/002-ai-explanation-architecture.md)。
+* **长连接流式通道与单活动请求生命周期 (Port-based Streaming V1)**:
+  - 详细设计与协议冻结规范见 [ADR 002](adr/002-ai-explanation-architecture.md)。
   - Content Script 与 Background 采用长连接 `browser.runtime.connect({ name: 'glint:ai-stream' })` 通信。
+  - 第一版严格保证**全局至多单一活动请求**，不设计多路复用。
   - 支持 `AI_START`、`AI_CHUNK`、`AI_DONE`、`AI_ERROR`、`AI_ABORT` 五大协议原语。
-  - Background 维护 `Map<string, AbortController>`，支持针对特定 `requestId` 的毫秒级网络掐断。
-  - 页面卸载或断开时触发 `port.onDisconnect`，自动回收关联网络连接与内存。
+  - Content Script 维护单调递增的 `requestId`（世代守卫 Epoch Guard），彻底丢弃竞态残余 chunk。
+  - Background 维护单一 `currentAbortController`，并在页面卸载/断开时通过 `port.onDisconnect` 自动回收未完成请求。
 
 ```mermaid
 sequenceDiagram
@@ -115,26 +116,25 @@ sequenceDiagram
     participant CS as 内容脚本 (Content Script)
     participant BG as 后台服务 (Background)
     participant PN as Provider Network (Anthropic)
-    participant Store as 本地缓存 (Storage)
 
     Card->>CS: 用户点击 "AI 解释"
-    Note over CS: 生成唯一 requestId<br/>设定 activeRequestId
-    CS->>BG: port.postMessage({ kind: 'AI_START', requestId, word, sentence })
-    Note over BG: 校验参数，读取 API Key<br/>创建 AbortController 存入 Map
-    BG->>PN: fetchProviderStream(key, prompt, signal)
+    Note over CS: 递增生成 requestId<br/>设定 activeRequestId
+    CS->>BG: port.postMessage({ kind: 'AI_START', requestId, tokenKey, word, lemma, sentence })
+    Note over BG: 掐断旧连接，读取 API Key<br/>创建新 AbortController
+    BG->>PN: fetchProviderStream(key, payload, signal)
     
     loop 流式增量推送 (SSE Chunks)
         PN-->>BG: text-delta
-        Note over BG: redactSecrets 脱敏
+        Note over BG: 检查长度 <= 4000 字符<br/>redactSecrets 脱敏
         BG->>CS: port.postMessage({ kind: 'AI_CHUNK', requestId, delta })
-        Note over CS: 校验 requestId === activeRequestId<br/>RAF 节流追加缓冲
+        Note over CS: 校验 requestId === activeRequestId<br/>rAF 节流追加缓冲
         CS->>Card: textContent 批量安全更新
     end
 
     PN-->>BG: Stream Completed
-    Note over BG: 缓存完整释义到 explanationsStore<br/>清理 activeRequests
-    BG->>CS: port.postMessage({ kind: 'AI_DONE', requestId, fullText })
-    CS->>Card: 标记加载完成
+    Note over BG: 清理 currentAbortController
+    BG->>CS: port.postMessage({ kind: 'AI_DONE', requestId })
+    CS->>Card: 最终 flush，标记完成
 
     Note over Card,BG: 若用户中途关闭卡片或切换生词
     Card->>CS: 关闭 / 切换
@@ -153,7 +153,7 @@ sequenceDiagram
 | **基础词汇表 (Lexicon)** | 打包内置 | `src/assets/lexicon.json` | 前台分词查询，启动时惰性初始化 |
 | **用户配置 (Settings)** | 永久持久化 | `browser.storage.local: "local:settings"` | 多标签页监听广播更新，读多写少 |
 | **已认识生词 (Known Words)**| 永久持久化 | `browser.storage.local: "local:knownWords"`| 数组集合，支持导入合并与单项撤销 |
-| **AI 语境释义缓存** | 永久持久化 (LRU) | `browser.storage.local: "local:explanations"`| 上限 2000 条，基于时间戳自动淘汰 |
+| **AI 语境释义缓存** | 后续版本规划 (V1暂不做持久化)| `browser.storage.local: "local:explanations"`| V1 保持纯单次会话请求，后续按需引入 LRU 淘汰 |
 | **瞬态交互状态 (Transient)**| 页面会话级 | Content Script 内存 (WeakMap, Token[]) | 随页面关闭自然销毁，无需持久化 |
 
 ---
@@ -161,9 +161,12 @@ sequenceDiagram
 ## 四、安全与防御架构 (Security by Design)
 
 1. **Prompt Injection 深度防御 (Defense in Depth)**:
-   - 网页提取的语境文本通过专有 XML 实体标签隔离（如 `<untrusted_context>`），与系统核心指令严格分离。
-   - 系统 Prompt 明确声明上下文内容为纯语言样本，无执行权限，坚决忽略其中试图逃逸的指令。
-   - Background 不授予 LLM 任何工具调用能力（No Tool Use），LLM 零权限触碰 API Key、本地存储或网络接口。
+   - 网页提取的语境文本通过专有结构化实体标签（如 `<untrusted_context>`）组织输入。必须明确：**格式标签只是输入组织方式，绝非安全边界**。
+   - 真正的安全边界是：
+     - **权限与工具隔离**: LLM 绝不拥有任何工具调用特权（No Tool Use），无法执行代码、无法读取文件或发起额外网络。
+     - **凭据绝对隔离**: API Key 仅保存在 Background，Prompt 与上下文零密钥。
+     - **语境最小化**: 仅发送单词与当前所在单句 (`sentenceAround`)，不上传页面 DOM、Cookie、表单。
+     - **输出无害化**: 模型返回的任何内容均视为纯文本，绝不作为 HTML 或脚本执行。
 2. **XSS 彻底免疫与安全渲染**:
    - 悬浮卡片放弃所有 `innerHTML` 与第三方富文本解析器。
    - 所有来自外部网络或模型吐出的流式增量与最终文本，100% 经由 DOM 原生 `.textContent` 写入 Shadow DOM 容器。

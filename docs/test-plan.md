@@ -109,38 +109,42 @@
 | 8 | 清除 Key 与状态复位 | 点击清除后，存储清空，输入框复位，触发权限撤销尝试 | 实机确认 `local:apiKeys` 清空，输入框复原，状态即时置为已清除 | **PASS** |
 
 
-### 6. AI 语境流式释义与生命周期 (Milestone 4 规划中 / 待产品决策)
-- [ ] Hover Card 内展示手势触发入口（如“AI 解释”按钮或快捷键，待产品决策）。
-- [ ] 触发后建立 `browser.runtime.connect({ name: 'glint:ai-stream' })` 长连接。
-- [ ] 提取目标单词及所在单句 (`sentenceAround`)，通过 XML 标签隔离送往后台。
+### 6. AI 语境流式释义与生命周期 (Milestone 4 协议已冻结 - 方案 B)
+- [ ] 鼠标悬停 (Hover) 仅展示本地词典，**绝不产生任何 AI IPC 消息与外部网络请求**。
+- [ ] Hover Card 内展示手势触发入口（“AI 解释”按钮，纯显式用户操作）。
+- [ ] 触发后建立 `browser.runtime.connect({ name: 'glint:ai-stream' })` 标签页长连接。
+- [ ] 提取目标单词及所在单句 (`sentenceAround`)，结构化组织输入送往后台，绝不跨越块级元素。
+- [ ] 全局同一时间至多单一活动请求，不设计多路复用。
 - [ ] 后台使用安全 Header 鉴权发起 SSE 流式请求，实时解析 text-delta。
 - [ ] 增量 chunk 经过 `redactSecrets` 脱敏后推送到前台。
 - [ ] 前台通过 `requestAnimationFrame` 节流更新卡片 Shadow DOM 内的 `textContent`。
+- [ ] 响应字符数达到 4,000 字符硬限制时立即 abort 并提示截断保护。
 - [ ] 用户关闭卡片、悬停到新词或页面关闭时，触发 abort 立即释放网络与后台 Worker 资源。
 - [ ] 流式渲染期间零 XSS、零 DOM 节点重建、零触发页面生词重扫。
 
-#### Milestone 4 规划测试矩阵 (18 项覆盖)
+#### Milestone 4 规划测试矩阵 (19 项专项覆盖)
 
-| 序号 | 验证场景 | 预期行为 | 验证环境 | 状态 |
-| :--- | :--- | :--- | :--- | :--- |
-| 1 | 用户手势触发 AI | 手势触发派发 `AI_START`，生成唯一 requestId | 自动化 + Safari TP 实机 | PLANNING |
-| 2 | 正常 SSE Stream 响应 | 完整接收流式片段并成功组装 | 自动化 (Mock Server) | PLANNING |
-| 3 | Stream 顺序与完整性 | Chunks 顺序拼接无遗漏、无乱序 | 自动化 | PLANNING |
-| 4 | Stream 正常闭合 (Done) | 收到 `AI_DONE`，卡片状态切换为完成态 | 自动化 + Safari TP 实机 | PLANNING |
-| 5 | 网络断开异常 (Network Error) | 断网情况下优雅报错，提示安全网络异常 | 自动化 + Safari TP 实机 | PLANNING |
-| 6 | HTTP 错误状态码 (401/429/500)| 正确捕获并显示友好错误，不泄露 Key | 自动化 | PLANNING |
-| 7 | 请求超时 (Timeout) | 超过预设阈值自动中断并提示超时 | 自动化 | PLANNING |
-| 8 | 用户主动 Abort | 用户点击取消或关闭卡片，连接即刻断开 | 自动化 + Safari TP 实机 | PLANNING |
-| 9 | 防重复并发点击 (Debounce) | 快速双击按钮只产生单一网络连接 | 自动化 + Safari TP 实机 | PLANNING |
-| 10 | 过期响应丢弃 (Stale Drop) | 旧请求 chunk 到达时被静默过滤 | 自动化 | PLANNING |
-| 11 | Token A → Token B 快速切换 | 切换新词后，卡片不显示前一个词的内容 | 自动化 + Safari TP 实机 | PLANNING |
-| 12 | 悬停卡片关闭清理 | 卡片离开关闭后，后台流停止推送 | 自动化 + Safari TP 实机 | PLANNING |
-| 13 | 标签页卸载 / 刷新 | 页面关闭时 Port 自动断开，后台清理连接 | Safari TP 实机 | PLANNING |
-| 14 | 畸形流与格式错误 | 服务端返回非标准流，优雅捕获不崩溃 | 自动化 | PLANNING |
-| 15 | 超大流截断保护 | 超过 16KB 限制自动掐断，防止内存耗尽 | 自动化 | PLANNING |
-| 16 | 恶意网页文本注入 (Prompt Injection) | 网页包含越狱指令，模型仍仅解释单词 | 自动化 + Safari TP 实机 | PLANNING |
-| 17 | 恶意 AI 响应 (XSS Payload) | AI 吐出 `<script>` 标签，纯文本转义显示 | 自动化 + Safari TP 实机 | PLANNING |
-| 18 | API Key 零泄露全面回归 | 全链路检查 URL、日志、DOM、消息负载 | 自动化 + Safari TP 实机 | PLANNING |
+| 序号 | 验证场景 | 预期测试行为 | 自动化 (Node / Happy-DOM) | Safari TP 实机验证 | 状态 |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| 1 | 点击卡片内 AI 按钮 | 卡片置为 loading，派发 `AI_START`，生成唯一自增 requestId | ✅ 支持 (Mock DOM) | ✅ 必须验证 | PLANNING |
+| 2 | 仅悬停 (Hover) 生词 | 触发并展示本地词典，**绝不产生任何 AI IPC 消息与网络请求** | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 3 | 正常 SSE Stream 响应 | 完整接收多块流式片段，解析 text-delta，最终收到 `AI_DONE` | ✅ 支持 (Mock SSE) | ✅ 必须验证 | PLANNING |
+| 4 | 多 Chunk 流式组装 | 多个连续 chunk 顺序无错位、字符拼接完整无遗漏 | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 5 | 空流响应 (Empty Stream)| 服务端返回空流或零 chunk，优雅处理并提示无内容 | ✅ 支持 | - | PLANNING |
+| 6 | 畸形 SSE 流 (Malformed)| 服务端返回非标准数据行或破损 JSON，捕获异常不崩溃 | ✅ 支持 | - | PLANNING |
+| 7 | HTTP 错误状态码 (401/429/500)| 正确捕获 HTTP 报错，UI 显示友好脱敏提示，零 Key 回显 | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 8 | 网络离线/DNS故障 (TypeError) | 捕获断网错误，UI 显示网络异常状态 | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 9 | 单次请求超时 (Timeout)| 超过预设超时阈值，`AbortSignal` 触发并中止请求 | ✅ 支持 | - | PLANNING |
+| 10 | 用户主动取消 (Explicit Abort)| 点击取消按钮，发送 `AI_ABORT`，Background 掐断请求 | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 11 | 卡片移出关闭取消 | 鼠标离开卡片触发 hide，自动触发 abort 流程释放连接 | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 12 | Token A → Token B 切换 | 切换新词后，老请求即刻失效，卡片只展示新词内容 | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 13 | 迟到旧 Chunk 过滤 (Stale Drop)| 老请求的延迟 chunk 到达，因 requestId 不匹配被直接丢弃 | ✅ 支持 | - | PLANNING |
+| 14 | 按钮快速重复点击 (Debounce) | 快速多次点击按钮只触发一次有效 `AI_START` | ✅ 支持 | ✅ 必须验证 | PLANNING |
+| 15 | Content Script 断开/页面卸载 | 页面关闭或刷新触发 `port.onDisconnect`，后台 Worker 立即 abort | - | ✅ 必须实机验证 | PLANNING |
+| 16 | 响应字符超限保护 (Oversized) | 累计字符数超过 4,000 时，立即掐断连接，保留局部内容并显示截断提示 | ✅ 支持 | - | PLANNING |
+| 17 | 恶意网页注入上下文 (Prompt Injection)| 网页文本包含越狱/破坏指令，仅作为语言样本，模型仍稳定解释生词 | ✅ 支持 | ✅ 必须实机验证 | PLANNING |
+| 18 | 恶意 AI 响应 (XSS Payload)| AI 输出 `<script>` 或恶意 HTML，Shadow DOM 纯文本安全转义呈现 | ✅ 支持 | ✅ 必须实机验证 | PLANNING |
+| 19 | API Key 零泄露全链路回归 | 检查所有 IPC payload、DOM、控制台输出、网络 URL 绝对不含 Key | ✅ 支持 | ✅ 必须实机验证 | PLANNING |
 
 ### 7. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。
