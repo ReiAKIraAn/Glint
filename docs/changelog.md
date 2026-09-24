@@ -6,6 +6,27 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 9: Milestone 4 / Step 2 — Background Port 联调与连接隔离架构 (Connection-Isolated Port Integration) - 2026-09-24
+- **Port 流式通信协议与连接调度器 (`src/lib/ai-port.ts`)**:
+  - 冻结最小化 Port 协议：客户端消息 `AI_START`、`AI_ABORT`；服务端消息 `AI_CHUNK`、`AI_DONE`、`AI_ERROR`。每条消息强制绑定 `requestId: string`。
+  - 核心架构收敛：实现按 Port 隔离的单请求生命周期（one active request per Port / Content Script connection），彻底杜绝全局请求单例。不同标签页（不同 Port）并发运行，Tab A abort 绝不影响 Tab B。
+  - `WeakMap<PortLike, PortState>` 存储连接局部状态，断开连接后即刻清理，无全局强引用或内存泄漏。
+  - 双重 `requestId` 过期过滤：Background 拦截非当前请求的迟到 chunk/done/error；Content Script `AiStreamClient` 丢弃非当前请求的所有在途消息，双保险保证绝无陈旧响应渗透。
+  - Same-Port 请求替换：同一 Port 连续触发时自动 abort 旧请求并设为 stale，平滑切换至新请求。
+  - 断开与卸载处理：`port.onDisconnect` 立即中断活跃请求并释放网络资源，断开后不再向 Port 发送任何消息。
+  - API Key 绝对隔离：Key 仅在 Background 内部由安全存储读取并传入 `streamFn`，绝不进入 Port 载荷、URL、Console 或 DOM。
+  - 规范错误映射：`mapProviderError` 将各类底层异常脱敏为 `HTTP_ERROR`、`NETWORK_ERROR`、`TIMEOUT`、`ABORTED`、`PROTOCOL_ERROR`、`RESPONSE_TOO_LARGE` 等标准错误。
+- **后台与内容脚本无缝对接 (`src/entrypoints/background.ts`, `src/entrypoints/content.ts`)**:
+  - `background.ts`: 注册 `browser.runtime.onConnect` 监听 `glint:ai-stream` 端口，委托给 `handleAiPortConnection(port)`。
+  - `content.ts`: 暴露最小测试句柄 `window.__glintAiStreamClient`（`AiStreamClient`），在 `pagehide` 时触发 `disconnect()`，卡片正式 UI 保持 100% 未动。
+- **Step 2 自动化测试套件 (`tests/ai-port.test.ts`)**:
+  - 新增 54 项专项自动化测试：覆盖连接建立与断开 (1-5)、流式输出时序 (6-9)、requestId 路由与丢弃 (10-14)、同 Port 替换 (15-20)、跨 Port 隔离并发 (21-26)、Abort 掐断 (27-31)、API Key 绝对隔离 (32-38)、生命周期断开清理 (39-43)、竞态安全 (44-47)、错误类型安全映射 (48-52) 及客户端 harness 测试。
+  - 自动化回归测试用例总数由 149 项增长至 203 项，全部 PASS。
+  - TypeScript 严格类型检查 (`tsc --noEmit`) 零报错，Safari 生产构建 (`pnpm build:safari`) 成功打包。
+- **零 Keep-Alive Hack 原则与 Safari 状态澄清**:
+  - 坚决不引入 `setInterval`、fake heartbeat 或 dummy traffic。
+  - 极端慢流/停流状态客观标记为 `SAFARI TP REAL SLOW-STREAM UNVERIFIED`。
+
 ### Phase 8: Milestone 4 / Step 1 — Anthropic SSE 流式网络层实现 (Provider Stream Layer) - 2026-09-24
 - **Anthropic SSE 纯网络层抽象 (`src/lib/provider-network.ts`)**:
   - 新增 `fetchProviderStream(settings, apiKey, payload, signal, onChunk, options)`：实现最小、纯粹、无 DOM / UI / Port 依赖的底层流式请求函数。

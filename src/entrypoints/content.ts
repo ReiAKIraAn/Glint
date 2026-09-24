@@ -11,6 +11,7 @@ import { applyStyle, clear, isSupported, paint, removeStyle } from '@/lib/highli
 import { HoverTracker } from '@/lib/hover';
 import { Card } from '@/lib/card';
 import { createWordNav, type WordNav } from '@/lib/keynav';
+import { AiStreamClient } from '@/lib/ai-port';
 import { DEFAULT_SETTINGS, siteDisabled } from '@/lib/types';
 import type { Analysis, DictEntry, Explained, Message, PageStats } from '@/lib/types';
 
@@ -207,6 +208,13 @@ export default defineContentScript({
     await Promise.all([refreshAiStatus(), refreshExamWords()]);
     schedule(run);
 
+    // Milestone 4 Step 2: 仅供 Safari TP smoke test 调用的流式客户端测试句柄，不修改 Card UI
+    let aiStreamClient: AiStreamClient | undefined;
+    if (typeof window !== 'undefined') {
+      aiStreamClient = new AiStreamClient();
+      (window as unknown as { __glintAiStreamClient?: AiStreamClient }).__glintAiStreamClient = aiStreamClient;
+    }
+
     /**
      * Safari-First 高性能增量扫描引擎：
      * 废弃原版每次变动都 100% 重扫整页 document.body 的方案。
@@ -350,6 +358,7 @@ export default defineContentScript({
       hover.stop();
       card.destroy();
       removeStyle();
+      aiStreamClient?.disconnect();
     });
   },
 });

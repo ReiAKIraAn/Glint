@@ -4,6 +4,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { APICallError, generateText, type LanguageModel } from 'ai';
 import { browser, defineBackground } from '#imports';
+import { AI_PORT_NAME, handleAiPortConnection } from '@/lib/ai-port';
 import { apiKeysStore, migrateLegacyKey } from '@/lib/keys';
 import { fetchProviderModels } from '@/lib/provider-network';
 import { redactSecrets, safeErrorMessage, sanitizeUrl } from '@/lib/security';
@@ -64,6 +65,12 @@ export default defineBackground(() => {
     if (!work) return undefined; // 不认识的消息：让出去，别占着通道
     void work.then(sendResponse);
     return true;
+  });
+
+  browser.runtime.onConnect?.addListener((port) => {
+    if (port.name === AI_PORT_NAME) {
+      handleAiPortConnection(port);
+    }
   });
 });
 

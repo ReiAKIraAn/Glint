@@ -26,6 +26,7 @@
 | **悬浮定位与卡片生命周期**| `tests/hover-card.test.ts` | WebKit Element 边界解析、Token 词头/词中/词尾 hit-test、脱离 DOM 节点过滤、单例 DOM 复用、XSS 注入纯文本安全校验 |
 | **Provider 网络切片与凭据安全**| `tests/provider-network.test.ts` (M3) | Header 鉴权、URL/日志/报错/ContentScript 零泄露、单 Origin 权限申请/拒绝/已授权、HTTP/网络/超时/畸形响应五路径、Key 清除与撤销 |
 | **AI 语境流式网络层与 SSE 解析**| `tests/ai-stream.test.ts` (M4 Step 1) | 单/多 delta、跨 chunk、UTF-8 多字节截断、非文本事件过滤、畸形 JSON、HTTP 401/429/500、Abort/Timeout、4000 字符限制、URL/Error/日志零 Key 泄露 (30 项自动化用例全部 PASS) |
+| **AI 流式 Port 通道与连接隔离**| `tests/ai-port.test.ts` (M4 Step 2) | Port 连接/断开、增量流转发、requestId 路由、同 Port 请求替换、跨 Port 隔离并发、Abort 掐断、API Key 零泄露、竞态与迟到丢弃、错误类型映射 (54 项测试全部 PASS) |
 
 ---
 
@@ -151,12 +152,37 @@
 | 18 | 恶意 AI 响应 (XSS Payload)| AI 输出 `<script>` 或恶意 HTML，Shadow DOM 纯文本安全转义呈现 | ✅ 支持 (3/30 已测) | ✅ 必须实机验证 | **Step 1 底层网络已 PASS** |
 | 19 | API Key 零泄露全链路回归 | 检查所有 IPC payload、DOM、控制台输出、网络 URL 绝对不含 Key | ✅ 支持 (3/30 已测) | ✅ 必须实机验证 | **Step 1 底层网络已 PASS** |
 
-### 7. 数据备份与 Anki 导出
+### 7. AI 流式 Port 通信与跨标签页隔离验证 (Milestone 4 Step 2 实机验证)
+- [x] Basic Stream: 网页 Content Script 发起 `AI_START`，后台 Worker 正确调用 Anthropic 并逐块回传 `AI_CHUNK`，最后以 `AI_DONE` 结束 (STP 253 实机通过)。
+- [x] User Abort: 流传输中途发送 `AI_ABORT`，推流即刻停止，无后续 chunk，无 `AI_DONE`，无报错 (STP 253 实机通过)。
+- [x] Same-Port Replacement: 在同一页面连续发起 A 与 B，A 立即被 abort 并判定 stale，B 顺利继续推流完毕 (STP 253 实机通过)。
+- [x] Two Tabs Concurrency: 两个标签页同时发起流式请求，Abort Tab A 时 Tab B 持续不受干扰；分别独立收尾 (STP 253 实机通过)。
+- [x] Tab Close: 推流中途关闭标签页，`port.onDisconnect` 立即触发后台 abort 与连接清理，无孤儿请求抛错 (STP 253 实机通过)。
+- [x] Navigation: 推流中途页面跳转，旧连接断开并中断请求，新页面环境干净 (STP 253 实机通过)。
+- [ ] Slow Stream: 模拟极端网络大停顿 (> 30s) 下 WebKit Service Worker 存活与网络连接保持状态 (**SAFARI TP REAL SLOW-STREAM UNVERIFIED**)。
+- [x] API Key Isolation: 检查 Network 面板、Port 消息、DOM 与控制台，API Key 仅存在于 Background 发起的 Request Header，页面上下文绝对不可见 (STP 253 实机通过)。
+
+#### Milestone 4 Step 2 实测验证矩阵 (Safari Technology Preview Release 253 / WebKit 22626.1.8.19.2)
+*测试环境：macOS 27.2 (Build 26B5091g) / Safari Technology Preview Release 253 (CFBundleVersion 22626.1.8.19.2)*
+
+| 序号 | 验证项 | 预期行为 | 实测结果 | 判定 |
+| :--- | :--- | :--- | :--- | :--- |
+| Test 1 | Basic stream | `AI_START` → Background → Anthropic → `AI_CHUNK × N` → `AI_DONE` | 页面 Content Script 发送 `AI_START`，收到完整 8 个文本增量块并以 `AI_DONE` 收尾，无 runtime error | **PASS** |
+| Test 2 | Abort | `AI_ABORT` 立即掐断传输，不再有后续 chunk 和 `AI_DONE` | 第 3 个 chunk 到达后发送 `AI_ABORT`，推流立即停止，无后续 chunk 投递，无 `AI_DONE`，连接状态清空 | **PASS** |
+| Test 3 | Same-Port replacement | 连续触发 A 与 B，A 被 supersede，B 正常推流 | 发起 A 后立即发起 B，A 接收信号变为 aborted，A 的残余事件被静默丢弃，B 接收完整增量并正常 DONE | **PASS** |
+| Test 4 | Two Tabs 并发与隔离 | Tab A 与 Tab B 同时流式；Abort A 不影响 B | 开启两个 Wikipedia 页面分别发起流式；Abort Tab A 时 Tab B 持续接收 chunk 直至成功完成 DONE | **PASS** |
+| Test 5 | Tab Close 异常清理 | 标签页关闭触发 `port.onDisconnect`，释放后台请求 | 流式传输中直接关闭标签页，后台捕获 disconnect 并立即执行 `abort()`，无 unhandled rejection 或悬挂状态 | **PASS** |
+| Test 6 | Navigation 跳转清理 | 页面跳转导航，旧 Content Script 断开 | 页面触发跳转时原 Port 断开，后台自动释放旧请求，新页面加载后建立新连接，无旧数据交叉污染 | **PASS** |
+| Test 7 | Slow Stream 长空闲 | 网络极端卡顿/慢流下 WebKit 行为 | 缺乏确定性 WebKit 规范保证，不设虚假 keep-alive，客观标记为需进一步监控 | **UNVERIFIED** |
+| Test 8 | API Key 零泄露全链路核查 | Content Script、Port 消息、DOM、Console 绝无 Key | DevTools 检查 Port 通信 payload、页面 window 对象、DOM 树及控制台日志，确认 API Key 仅存在于 Background 内部 | **PASS** |
+
+### 8. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。
 - [ ] 打开 Anki 客户端执行“导入文件”，确认卡片自动建入 `Glint` 牌组，正反面格式完好。
 - [ ] 导出 JSON 备份，确认文件不含 API Key。
 
-### 8. 生命周期稳定性
+### 9. 生命周期稳定性
 - [ ] 连续开启 10 个英文标签页，各页面高亮与卡片均正常工作。
 - [ ] 网页前进/后退/SPA 路由切换，扩展稳定响应。
 - [ ] Safari 休眠并唤醒，扩展功能保持正常。
+

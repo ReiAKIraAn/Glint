@@ -13,8 +13,8 @@
 1. **零自动网络请求**: 鼠标悬停 (Hover) 本身绝对不产生任何 AI 网络请求与 Token 消耗。
 2. **本地词典即时响应**: 本地 5.7 万词离线字典查询结果继续保持秒级即时展示。
 3. **显式用户操作**: AI 解释是明确的用户主动操作，用户必须在卡片内主动点击“AI 解释”按钮才发起调用。
-4. **单活动请求原则**: 第一版严格限制**同一时间全局至多一个活动 AI 请求**。不设计多路复用，绝不允许 Request A 与 Request B 同时在后台并发。
-5. **切换即取消**: 用户将鼠标切换至另一个 Token 时，前一个请求必须先进入 abort/失效流程，旧响应绝对不得污染新卡片。
+4. **单活动请求原则 (按 Port 严格隔离)**: 第一版严格限制**同一 Port / Content Script 连接至多一个活动 AI 请求**。不设计同一连接的多路复用；新请求自动取消旧请求；不同标签页（不同 Port）允许并发，彼此完全隔离，互不干扰。
+5. **切换即取消**: 用户在同一卡片或同一页面将鼠标切换至另一个 Token 并触发时，前一个请求必须先进入 abort/失效流程，旧响应绝对不得污染新卡片。
 6. **边界收敛**:
    - 第一版**不做自动预取 (No Prefetch)**。
    - 第一版**不做快捷键触发 (No Shortcuts)**。
@@ -369,3 +369,56 @@ Prompt 中引导模型以固定标号输出结构化释义：
    - 现代 Web 标准已原生支持 `fetch`、`ReadableStream` 与 `TextDecoder`。
    - 自研轻量增量解析器仅约 80 行代码，完整处理了行缓冲、空行分隔、跨 chunk 拆分、单 chunk 多事件以及 UTF-8 多字节拆分。
    - 避免引入外部依赖（如 `eventsource`、`fetch-event-source` 等），确保 Safari 扩展体积最小、供应链绝对安全。
+
+---
+
+## 十三、Step 2 实现沉淀：Background Port 联调与连接隔离架构 (Connection-Isolated Port Architecture)
+
+在 Milestone 4 / Step 2 中，已完成 Content Script 与 Background Service Worker 间基于 WebExtension Port 的流式传输管道联调与生命周期管理：
+
+### 1. 核心架构演进：严格按 Port 隔离与跨标签页并发
+- **否定全局请求单例**: 早期草案中的 “one active AI request” 在 Step 2 中被严密澄清与定型为 **“one active request per Port / Content Script connection”**。严禁在 Background Service Worker 中使用任何扩展级全局 `currentAbortController` 或全局活动请求状态。
+- **跨 Port 完全隔离**: 
+  - 每个 Content Script 连接（每个 Tab / Frame）拥有独立的连接状态 `PortState`（包含 `activeRequestId`、`activeAbortController`、`isDisconnected`）。
+  - Port A 与 Port B 并发执行；Port A 发起 abort 或被新请求替换，绝不影响 Port B；Port A 断开连接，Port B 持续推流。
+- **弱引用注册表 (WeakMap Storage)**:
+  - 后台使用 `WeakMap<PortLike, PortState>` 存储连接局部状态，断开后即刻从映射中移除，杜绝内存泄漏与长寿命 DOM/Port 对象悬挂。
+
+### 2. 冻结的 Port IPC 消息协议 (Frozen Port Protocol)
+所有流式通信严格收敛为以下 5 种最小序列化消息：
+- **Client → Server**:
+  - `AI_START`: `{ type: 'AI_START', requestId: string, payload: { word: string, lemma?: string, sentence: string } }`
+  - `AI_ABORT`: `{ type: 'AI_ABORT', requestId: string }`
+- **Server → Client**:
+  - `AI_CHUNK`: `{ type: 'AI_CHUNK', requestId: string, text: string }`
+  - `AI_DONE`: `{ type: 'AI_DONE', requestId: string }`
+  - `AI_ERROR`: `{ type: 'AI_ERROR', requestId: string, code: string, message: string }`
+- **严格协议边界**:
+  - 严禁包含 API Key、Authorization Header、原始未脱敏堆栈、Markdown、HTML、DOM 对象或内部 Error 实例。
+  - 所有消息强制携带 `requestId: string` 作为唯一路由依据。
+
+### 3. 双端 Stale Response 防护不变量 (Dual-Sided Stale Protection Invariant)
+- **不仅依赖 `AbortController`**: 网络 I/O、Promise microtask 与 IPC 队列均可能存在已排队的在途消息包。
+- **双端双保险**:
+  - **Background 侧**: 每次触发 `onChunk`、`AI_DONE`、`AI_ERROR` 时，前置校验 `state.activeRequestId === forRequestId`。若请求已被同 Port 的新请求 supersede 或已主动 abort，后续全部网络回调被静默阻断，绝不向 Port 投递。
+  - **Content Script 侧**: `AiStreamClient` 在接收消息时，强制比对 `msg.requestId === this.currentRequestId`。任何由于网络延迟漂移到达的旧世代消息均被底层 client 瞬间丢弃，绝不上浮给 UI 消费层。
+
+### 4. Same-Port 请求替换 (Same-Port Replacement)
+- 当用户在同一个卡片或页面快速切换生词并重新触发时，新发起的 `AI_START` 立即自动调用上一请求的 `AbortController.abort()`，并置上一请求为 stale。
+- 新请求的 `requestId` 立即占据 `activeRequestId`，旧请求即便有网络异常或迟到包也被完全吞噬，新请求独立平滑流式输出至结束。
+
+### 5. 异常断开与生命周期清理 (Port Disconnect Cleanup)
+- 监听 `port.onDisconnect`（触发于标签页关闭、页面导航跳转、刷新、扩展重载等场景）。
+- 监听到断开后，立即标记 `state.isDisconnected = true`，主动调用 `state.activeAbortController?.abort()` 释放底层网络资源，并清空所有引用。断开后严禁向 Port 执行任何 `postMessage`。
+
+### 6. API Key 安全隔离红线 (Security Hard Barrier)
+- API Key 仅在 Background 内部通过 `apiKeysStore` 安全读取，直接作为局部参数传给底层 `streamFn`。
+- Content Script 绝无可能读取 API Key；Port 传输的任何消息载荷均不含 API Key；`AI_ERROR` 中的错误提示全部经过 `mapProviderError` 与 `safeErrorMessage([key])` 脱敏。
+
+### 7. Service Worker 生命周期原则与客观验证评级
+- **零 Keep-Alive Hack 原则**: 严禁引入任何 `setInterval`、fake heartbeat、dummy Port traffic 或虚假 fetch 试图阻碍 Safari 对 Service Worker 的休眠管理。
+- **验证评级记录**:
+  - **AUTOMATED VERIFIED**: 54 项跨连接隔离、Abort、Stale 拦截、Race condition 单元与集成测试 100% 通过。
+  - **SAFARI TP VERIFIED**: 基础单流、同 Port 替换、双标签页隔离并发、标签页关闭与页面导航实机验证通过。
+  - **SAFARI TP REAL SLOW-STREAM UNVERIFIED**: 真实网络极端超慢流（如 > 30s 停顿）下 WebKit 是否强杀 Worker 或保持连接，目前尚无确定性官方规范，记录为客观未验证状态。
+

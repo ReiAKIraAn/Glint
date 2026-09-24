@@ -35,7 +35,17 @@ export const storage = {
 };
 
 export const browser = {
-  runtime: { sendMessage: async () => undefined, getURL: (p: string) => p },
+  runtime: {
+    sendMessage: async () => undefined,
+    getURL: (p: string) => p,
+    connect: (options?: { name?: string }) => ({
+      name: options?.name ?? '',
+      postMessage: () => {},
+      disconnect: () => {},
+      onMessage: { addListener: () => {}, removeListener: () => {} },
+      onDisconnect: { addListener: () => {}, removeListener: () => {} },
+    }),
+  },
   permissions: {
     contains: async () => true,
     request: async () => true,
