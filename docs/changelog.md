@@ -6,6 +6,26 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 7: Milestone 4 — AI 语境释义架构设计与风险审查 (Architecture Design & Risk Review) - 2026-09-24
+- **架构设计决策沉淀 (ADR 002)**:
+  - 新增 `docs/adr/002-ai-explanation-architecture.md`：详细论证并沉淀 Milestone 4 核心设计。
+  - 四大 AI 触发机制全面对比（Hover 自动、卡片内点击、快捷键、混合策略）横跨 9 个评估维度，明确待决产品选项。
+  - 确立全链路端到端时序图与责任矩阵，坚守 API Key 仅 Background 驻留，网页/DOM/IPC Payload 零密钥暴露。
+- **WebKit / Safari Service Worker 生命周期与流式协议设计**:
+  - 审查 Safari TP 253 WebKit 规范：基于 `browser.runtime.connect` 长连接维护流式生命周期，监听 `port.onDisconnect` 自动终止未决网络请求。
+  - 确立结构化 IPC 流式消息协议：`AI_START`、`AI_CHUNK`、`AI_DONE`、`AI_ERROR`、`AI_ABORT`。
+  - 引入 `requestId` 机制与 `Map<string, AbortController>`，彻底消除 Token A → Token B 快速悬停切换时的竞态条件与残余延迟推送。
+- **安全与防御深度 (Security by Design)**:
+  - 上下文数据边界设计：推荐仅发送“目标单词 + 当前单句 (`sentenceAround`)”，兼顾消歧准确度与隐私最小化。
+  - Prompt Injection 防御体系：系统 Prompt 最高优先级硬约束、XML 实体标签严格隔离、模型零工具调用权限。
+  - 渲染安全：延续 Milestone 2 经实机验证的纯 `textContent` 结构化装配，零外部 Markdown 依赖，绝对免疫 XSS。
+- **性能与节流设计**:
+  - `requestAnimationFrame` 增量缓冲区节流合并，将流式高频 DOM 写入与屏幕帧率同步；复用 Shadow DOM 容器，零节点重建，零触发页面生词重扫。
+- **Milestone 4 测试矩阵与文档同步**:
+  - `docs/test-plan.md` 扩充 18 项覆盖流式交互、异常恢复、超时、竞态取消、注入与 XSS 防护的专项测试矩阵。
+  - `docs/architecture.md` 同步更新流式架构时序与安全模型。
+  - **生产代码 (`src/`) 保持 100% 未修改，静待用户确认产品决策**。
+
 ### Phase 6: Milestone 3 — 最小安全网络切片与 Safari 权限闭环 (Secure Provider Network Slice) - 2026-09-24
 - **Safari-First 最小权限与清单严密化 (Least-Privilege)**:
   - `wxt.config.ts`: Safari 构建从 `optional_host_permissions` 中彻底移除 `https://*/*` 全站通配符，仅保留预置商业 AI Provider 的独立单域规则；`host_permissions` 维持为空数组 `[]`。

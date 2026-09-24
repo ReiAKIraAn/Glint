@@ -98,28 +98,48 @@ sequenceDiagram
 * **智能自适应避让算法 (`pickSide`)**:
   - 动态计算视口剩余上下空间，当鼠标踩在卡片上触发 AI 生成（卡片高度突增）时，实施严格选边锁定 (`locked`)，坚决杜绝因重新选边导致卡片在光标下“瞬间跳走”。
 
-### 5. 后台路由与安全边界隔离 (Background Service Worker)
-* **API Key 安全隔离区**:
-  - API Key 仅保存在 `local:apiKeys` 中，模块引用严格限制在 `background` 与 `options`。
-  - Content Script 无权访问密钥存储，仅能发起 `dict:lookup` 或 `ai:analyze` 等受控指令。
-* **AI 语境请求全流程**:
+### 5. 后台路由、安全边界与流式释义架构 (Background Service Worker & Streaming)
+* **API Key 绝对隔离区**:
+  - API Key 仅保存在 `local:apiKeys` 中，仅 Background 与 Options 有权读写。
+  - Content Script 绝无权限访问密钥存储，网络请求完全由 Background 代理。
+* **长连接流式通道与生命周期管理 (Port-based Streaming)**:
+  - 详细设计与风险审查见 [ADR 002](adr/002-ai-explanation-architecture.md)。
+  - Content Script 与 Background 采用长连接 `browser.runtime.connect({ name: 'glint:ai-stream' })` 通信。
+  - 支持 `AI_START`、`AI_CHUNK`、`AI_DONE`、`AI_ERROR`、`AI_ABORT` 五大协议原语。
+  - Background 维护 `Map<string, AbortController>`，支持针对特定 `requestId` 的毫秒级网络掐断。
+  - 页面卸载或断开时触发 `port.onDisconnect`，自动回收关联网络连接与内存。
 
 ```mermaid
 sequenceDiagram
+    participant Card as Hover Card (Shadow DOM)
     participant CS as 内容脚本 (Content Script)
     participant BG as 后台服务 (Background)
-    participant AI as 外部大模型 API (Anthropic/OpenAI/Gemini/etc.)
+    participant PN as Provider Network (Anthropic)
     participant Store as 本地缓存 (Storage)
 
-    CS->>BG: sendMessage({ kind: 'ai:analyze', word, sentence, lemma })
-    Note over BG: 校验请求来源与参数合法性
-    BG->>Store: 读取 API Key 与服务商配置
-    BG->>AI: generateText({ model, prompt, system, timeout: 90s })
-    AI-->>BG: 返回原始回答 JSON
-    Note over BG: 容错解析 JSON 格式
-    BG->>Store: 写入 explanationsStore (自动 LRU 淘汰)
-    BG-->>CS: { ok: true, analysis }
-    Note over CS: 渲染原句、翻译、例句与助记
+    Card->>CS: 用户点击 "AI 解释"
+    Note over CS: 生成唯一 requestId<br/>设定 activeRequestId
+    CS->>BG: port.postMessage({ kind: 'AI_START', requestId, word, sentence })
+    Note over BG: 校验参数，读取 API Key<br/>创建 AbortController 存入 Map
+    BG->>PN: fetchProviderStream(key, prompt, signal)
+    
+    loop 流式增量推送 (SSE Chunks)
+        PN-->>BG: text-delta
+        Note over BG: redactSecrets 脱敏
+        BG->>CS: port.postMessage({ kind: 'AI_CHUNK', requestId, delta })
+        Note over CS: 校验 requestId === activeRequestId<br/>RAF 节流追加缓冲
+        CS->>Card: textContent 批量安全更新
+    end
+
+    PN-->>BG: Stream Completed
+    Note over BG: 缓存完整释义到 explanationsStore<br/>清理 activeRequests
+    BG->>CS: port.postMessage({ kind: 'AI_DONE', requestId, fullText })
+    CS->>Card: 标记加载完成
+
+    Note over Card,BG: 若用户中途关闭卡片或切换生词
+    Card->>CS: 关闭 / 切换
+    CS->>BG: port.postMessage({ kind: 'AI_ABORT', requestId })
+    Note over BG: abortController.abort()<br/>释放网络连接
 ```
 
 ---
@@ -140,10 +160,16 @@ sequenceDiagram
 
 ## 四、安全与防御架构 (Security by Design)
 
-1. **Prompt Injection 与 XSS 防护**:
-   - 网页提取的原句与单词仅作为字符串放入 LLM Prompt 的明确隔离段落，不与系统指令混淆。
-   - 所有来自外部网络或模型吐出的字段，在渲染至 Shadow DOM 前必须经过强制转义，禁止裸 HTML 拼接。
-2. **CSP 策略**:
+1. **Prompt Injection 深度防御 (Defense in Depth)**:
+   - 网页提取的语境文本通过专有 XML 实体标签隔离（如 `<untrusted_context>`），与系统核心指令严格分离。
+   - 系统 Prompt 明确声明上下文内容为纯语言样本，无执行权限，坚决忽略其中试图逃逸的指令。
+   - Background 不授予 LLM 任何工具调用能力（No Tool Use），LLM 零权限触碰 API Key、本地存储或网络接口。
+2. **XSS 彻底免疫与安全渲染**:
+   - 悬浮卡片放弃所有 `innerHTML` 与第三方富文本解析器。
+   - 所有来自外部网络或模型吐出的流式增量与最终文本，100% 经由 DOM 原生 `.textContent` 写入 Shadow DOM 容器。
+3. **敏感凭据脱敏防泄露 (Secret Redaction Boundary)**:
+   - 全局过滤网络请求 URL、异常抛出、控制台日志与前端 UI 报错回显中的所有 API Key、Bearer Token 与敏感 Query 参数。
+   - 鉴权统一使用 HTTP Request Header，绝不在 URL Query 中拼接凭据。
+4. **CSP 策略与隔离上下文**:
    - 扩展上下文禁止加载外部未经授权的脚本与动态代码执行 (`eval`)。
-3. **网络边界控制**:
-   - 所有外网 LLM 通信必须经过 Background 代理发出，避免在 Content Script 暴露网络端点或违背宿主页面的 CSP 规则。
+   - 外网 LLM 通信严格限制在 Background 代理执行，Content Script 与宿主页面完全隔离。

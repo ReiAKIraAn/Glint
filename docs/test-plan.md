@@ -24,7 +24,8 @@
 | **增量扫描批处理**| `tests/incremental-scan.test.ts` | 局部 DOM 节点添加/删除/文本变更时，校验是否仅扫描变动子树，增量计算是否准确 |
 | **高亮渲染与样式注入**| `tests/highlight.test.ts` | `CSS.highlights` 范围注册、`document.adoptedStyleSheets` 动态挂载、WebKit 隔离环境异常降级回退 `<style>` |
 | **悬浮定位与卡片生命周期**| `tests/hover-card.test.ts` | WebKit Element 边界解析、Token 词头/词中/词尾 hit-test、脱离 DOM 节点过滤、单例 DOM 复用、XSS 注入纯文本安全校验 |
-| **Provider 网络切片与凭据安全**| `tests/provider-network.test.ts` (新增) | Header 鉴权、URL/日志/报错/ContentScript 零泄露、单 Origin 权限申请/拒绝/已授权、HTTP/网络/超时/畸形响应五路径、Key 清除与撤销 |
+| **Provider 网络切片与凭据安全**| `tests/provider-network.test.ts` (M3) | Header 鉴权、URL/日志/报错/ContentScript 零泄露、单 Origin 权限申请/拒绝/已授权、HTTP/网络/超时/畸形响应五路径、Key 清除与撤销 |
+| **AI 语境流式协议与生命周期**| `tests/ai-stream.test.ts` (M4 规划) | SSE 流解析、Port 通信、分块拼接、Abort 取消、requestId 竞态防护、超时、XSS 与 Prompt 注入防御 |
 
 ---
 
@@ -108,12 +109,45 @@
 | 8 | 清除 Key 与状态复位 | 点击清除后，存储清空，输入框复位，触发权限撤销尝试 | 实机确认 `local:apiKeys` 清空，输入框复原，状态即时置为已清除 | **PASS** |
 
 
-### 6. 数据备份与 Anki 导出
+### 6. AI 语境流式释义与生命周期 (Milestone 4 规划中 / 待产品决策)
+- [ ] Hover Card 内展示手势触发入口（如“AI 解释”按钮或快捷键，待产品决策）。
+- [ ] 触发后建立 `browser.runtime.connect({ name: 'glint:ai-stream' })` 长连接。
+- [ ] 提取目标单词及所在单句 (`sentenceAround`)，通过 XML 标签隔离送往后台。
+- [ ] 后台使用安全 Header 鉴权发起 SSE 流式请求，实时解析 text-delta。
+- [ ] 增量 chunk 经过 `redactSecrets` 脱敏后推送到前台。
+- [ ] 前台通过 `requestAnimationFrame` 节流更新卡片 Shadow DOM 内的 `textContent`。
+- [ ] 用户关闭卡片、悬停到新词或页面关闭时，触发 abort 立即释放网络与后台 Worker 资源。
+- [ ] 流式渲染期间零 XSS、零 DOM 节点重建、零触发页面生词重扫。
+
+#### Milestone 4 规划测试矩阵 (18 项覆盖)
+
+| 序号 | 验证场景 | 预期行为 | 验证环境 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | 用户手势触发 AI | 手势触发派发 `AI_START`，生成唯一 requestId | 自动化 + Safari TP 实机 | PLANNING |
+| 2 | 正常 SSE Stream 响应 | 完整接收流式片段并成功组装 | 自动化 (Mock Server) | PLANNING |
+| 3 | Stream 顺序与完整性 | Chunks 顺序拼接无遗漏、无乱序 | 自动化 | PLANNING |
+| 4 | Stream 正常闭合 (Done) | 收到 `AI_DONE`，卡片状态切换为完成态 | 自动化 + Safari TP 实机 | PLANNING |
+| 5 | 网络断开异常 (Network Error) | 断网情况下优雅报错，提示安全网络异常 | 自动化 + Safari TP 实机 | PLANNING |
+| 6 | HTTP 错误状态码 (401/429/500)| 正确捕获并显示友好错误，不泄露 Key | 自动化 | PLANNING |
+| 7 | 请求超时 (Timeout) | 超过预设阈值自动中断并提示超时 | 自动化 | PLANNING |
+| 8 | 用户主动 Abort | 用户点击取消或关闭卡片，连接即刻断开 | 自动化 + Safari TP 实机 | PLANNING |
+| 9 | 防重复并发点击 (Debounce) | 快速双击按钮只产生单一网络连接 | 自动化 + Safari TP 实机 | PLANNING |
+| 10 | 过期响应丢弃 (Stale Drop) | 旧请求 chunk 到达时被静默过滤 | 自动化 | PLANNING |
+| 11 | Token A → Token B 快速切换 | 切换新词后，卡片不显示前一个词的内容 | 自动化 + Safari TP 实机 | PLANNING |
+| 12 | 悬停卡片关闭清理 | 卡片离开关闭后，后台流停止推送 | 自动化 + Safari TP 实机 | PLANNING |
+| 13 | 标签页卸载 / 刷新 | 页面关闭时 Port 自动断开，后台清理连接 | Safari TP 实机 | PLANNING |
+| 14 | 畸形流与格式错误 | 服务端返回非标准流，优雅捕获不崩溃 | 自动化 | PLANNING |
+| 15 | 超大流截断保护 | 超过 16KB 限制自动掐断，防止内存耗尽 | 自动化 | PLANNING |
+| 16 | 恶意网页文本注入 (Prompt Injection) | 网页包含越狱指令，模型仍仅解释单词 | 自动化 + Safari TP 实机 | PLANNING |
+| 17 | 恶意 AI 响应 (XSS Payload) | AI 吐出 `<script>` 标签，纯文本转义显示 | 自动化 + Safari TP 实机 | PLANNING |
+| 18 | API Key 零泄露全面回归 | 全链路检查 URL、日志、DOM、消息负载 | 自动化 + Safari TP 实机 | PLANNING |
+
+### 7. 数据备份与 Anki 导出
 - [ ] 点击导出 Anki，生成 `.txt` TSV 文件。
 - [ ] 打开 Anki 客户端执行“导入文件”，确认卡片自动建入 `Glint` 牌组，正反面格式完好。
 - [ ] 导出 JSON 备份，确认文件不含 API Key。
 
-### 7. 生命周期稳定性
+### 8. 生命周期稳定性
 - [ ] 连续开启 10 个英文标签页，各页面高亮与卡片均正常工作。
 - [ ] 网页前进/后退/SPA 路由切换，扩展稳定响应。
 - [ ] Safari 休眠并唤醒，扩展功能保持正常。
