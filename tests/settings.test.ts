@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withDefaults } from '../src/lib/settings';
-import { DEFAULT_SETTINGS, DEFAULT_MODELS } from '../src/lib/types';
+import { DEFAULT_SETTINGS, DEFAULT_MODELS, isConfigured, type Settings } from '../src/lib/types';
 
 test('空对象补成一份完整默认值', () => {
   assert.deepEqual(withDefaults({}), DEFAULT_SETTINGS);
@@ -92,4 +92,60 @@ test('用户已存的 customExtraBody 不被默认值覆盖', () => {
   const customBody = JSON.stringify({ thinking_mode: true, temperature: 0.7 });
   const out = withDefaults({ customExtraBody: customBody });
   assert.equal(out.customExtraBody, customBody);
+});
+
+test('CONFIG-CUSTOM-KEYLESS-01: valid custom endpoint + model + empty key -> configured', () => {
+  const settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    provider: 'custom',
+    baseURLs: { custom: 'https://api.my-endpoint.com/v1' },
+    models: { ...DEFAULT_SETTINGS.models, custom: 'my-custom-model' },
+  };
+  assert.equal(isConfigured(settings, false), true);
+});
+
+test('CONFIG-CUSTOM-KEYLESS-02: valid custom endpoint + model + key -> configured', () => {
+  const settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    provider: 'custom',
+    baseURLs: { custom: 'https://api.my-endpoint.com/v1' },
+    models: { ...DEFAULT_SETTINGS.models, custom: 'my-custom-model' },
+  };
+  assert.equal(isConfigured(settings, true), true);
+});
+
+test('CONFIG-CUSTOM-KEYLESS-03: invalid/missing custom endpoint -> not configured', () => {
+  const settingsMissingURL: Settings = {
+    ...DEFAULT_SETTINGS,
+    provider: 'custom',
+    baseURLs: { custom: '' },
+    models: { ...DEFAULT_SETTINGS.models, custom: 'my-custom-model' },
+  };
+  assert.equal(isConfigured(settingsMissingURL, false), false);
+  assert.equal(isConfigured(settingsMissingURL, true), false);
+
+  const settingsMissingModel: Settings = {
+    ...DEFAULT_SETTINGS,
+    provider: 'custom',
+    baseURLs: { custom: 'https://api.my-endpoint.com/v1' },
+    models: { ...DEFAULT_SETTINGS.models, custom: '' },
+  };
+  assert.equal(isConfigured(settingsMissingModel, false), false);
+  assert.equal(isConfigured(settingsMissingModel, true), false);
+});
+
+test('CONFIG-OPENAI-DEEPSEEK-KEY-REQUIRED: OpenAI 与 DeepSeek 必须要求 Key', () => {
+  const openaiSettings: Settings = {
+    ...DEFAULT_SETTINGS,
+    provider: 'openai',
+  };
+  assert.equal(isConfigured(openaiSettings, true), true);
+  assert.equal(isConfigured(openaiSettings, false), false);
+
+  const deepseekSettings: Settings = {
+    ...DEFAULT_SETTINGS,
+    provider: 'deepseek',
+  };
+  assert.equal(isConfigured(deepseekSettings, true), true);
+  assert.equal(isConfigured(deepseekSettings, false), false);
 });

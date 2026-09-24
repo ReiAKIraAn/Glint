@@ -138,6 +138,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     model: '',
     origin: '',
     icon: '',
+    keyless: true,
   },
 };
 

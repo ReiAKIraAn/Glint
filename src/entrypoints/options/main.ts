@@ -251,8 +251,9 @@ function paintProvider() {
   fields.model.value = settings.models[provider] || DEFAULT_MODELS[provider] || '';
   fields.model.placeholder = DEFAULT_MODELS[provider] || '填模型名';
   fields.apiKey.value = savedKeys[provider] ? KEY_MASK : '';
-  fields.apiKey.placeholder = `${spec.name} 的 API Key`;
-  fields.apiKey.disabled = !!spec.keyless;
+  fields.apiKey.placeholder =
+    spec.kind === 'custom' ? `${spec.name} 的 API Key（可选）` : `${spec.name} 的 API Key`;
+  fields.apiKey.disabled = !!spec.keyless && spec.kind !== 'custom';
 
   // 自定义接口可以改地址与额外请求体
   $('baseURLRow').hidden = spec.kind !== 'custom';
@@ -269,20 +270,25 @@ function paintProvider() {
   if (spec.keyURL) link.href = spec.keyURL;
 
   setKeyStatus(
-    spec.keyless
-      ? `${spec.name} · 本机服务，不用 Key`
-      : savedKeys[provider]
-        ? `${spec.name} · 已保存 Key`
-        : `${spec.name} · 还没配置 Key`,
+    savedKeys[provider]
+      ? `${spec.name} · 已保存 Key`
+      : spec.kind === 'custom'
+        ? `${spec.name} · 可选 Key（可免 Key 或保存 Key）`
+        : spec.keyless
+          ? `${spec.name} · 本机服务，不用 Key`
+          : `${spec.name} · 还没配置 Key`,
   );
 
   // 换了服务商，上一家的模型列表就不作数了
   fields.modelList.innerHTML = '';
   fields.modelPick.innerHTML = '';
   fields.modelPick.hidden = true;
-  $('modelNote').textContent = spec.keyless
-    ? '本机服务，直接点「拉取列表」看装了哪些'
-    : '配好 Key 后点「拉取列表」，直接从这家的接口里选';
+  $('modelNote').textContent =
+    spec.kind === 'custom'
+      ? '点「拉取列表」从接口获取可用模型（或直接输入模型名）'
+      : spec.keyless
+        ? '本机服务，直接点「拉取列表」看装了哪些'
+        : '配好 Key 后点「拉取列表」，直接从这家的接口里选';
   $('aiSummary').innerHTML = aiOk
     ? `<b>${escape(spec.name)}</b> · ${escape(fields.model.value.trim())} · <span data-tone="ok">已就绪</span>`
     : `<b>${escape(spec.name)}</b> · <span>还没配置好</span>`;
