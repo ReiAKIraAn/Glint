@@ -5,7 +5,7 @@ import type { Token } from './scan';
  * 所以反过来做：拿鼠标坐标问浏览器「这个位置落在哪个文本节点的第几个字符上」，
  * 再回查这个字符属不属于某个被标注的词。
  */
-function caretAt(x: number, y: number): { node: Node; offset: number } | undefined {
+export function caretAt(x: number, y: number): { node: Node; offset: number } | undefined {
   const doc = document as Document & {
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
@@ -17,6 +17,29 @@ function caretAt(x: number, y: number): { node: Node; offset: number } | undefin
   // Safari 和老一点的 Chrome
   const range = doc.caretRangeFromPoint?.(x, y);
   return range ? { node: range.startContainer, offset: range.startOffset } : undefined;
+}
+
+/**
+ * 当 WebKit 在元素边界返回 Element 容器时，安全解析出目标 Text 节点与字符偏移
+ */
+export function resolveTextCaret(caret: { node: Node; offset: number }): { node: Text; offset: number } | undefined {
+  if (caret.node.nodeType === Node.TEXT_NODE) {
+    return { node: caret.node as Text, offset: caret.offset };
+  }
+  if (caret.node.nodeType === Node.ELEMENT_NODE) {
+    const el = caret.node as Element;
+    const child = el.childNodes[caret.offset];
+    if (child && child.nodeType === Node.TEXT_NODE) {
+      return { node: child as Text, offset: 0 };
+    }
+    if (caret.offset > 0) {
+      const prev = el.childNodes[caret.offset - 1];
+      if (prev && prev.nodeType === Node.TEXT_NODE) {
+        return { node: prev as Text, offset: (prev as Text).data.length };
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -220,17 +243,22 @@ export class HoverTracker {
     }, DWELL_MS);
   };
 
-  private tokenAt(x: number, y: number): Token | undefined {
-    const caret = caretAt(x, y);
-    if (!caret || caret.node.nodeType !== Node.TEXT_NODE) return undefined;
-    const tokens = this.index.get(caret.node as Text);
+  tokenAt(x: number, y: number): Token | undefined {
+    const rawCaret = caretAt(x, y);
+    if (!rawCaret) return undefined;
+    const caret = resolveTextCaret(rawCaret);
+    if (!caret) return undefined;
+    const tokens = this.index.get(caret.node);
     if (!tokens) return undefined;
-    // caret 落在词的任意一个字符区间内就算命中
-    return tokens.find((t) => caret.offset >= t.start && caret.offset <= t.end);
+    // caret 落在词的任意一个字符区间内就算命中，且确保节点仍连接在 DOM 树中
+    return tokens.find((t) => {
+      const node = t.node;
+      return !!node && node.isConnected && caret.offset >= t.start && caret.offset <= t.end;
+    });
   }
 }
 
-function rectOf(token: Token): DOMRect | undefined {
+export function rectOf(token: Token): DOMRect | undefined {
   const node = token.node;
   if (!node || !node.isConnected) return undefined;
   try {

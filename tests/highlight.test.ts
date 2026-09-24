@@ -116,7 +116,7 @@ test('applyStyle 在 adoptedStyleSheets 抛出异常时平滑回退到 <style> �
     if (originalAdopted) {
       Object.defineProperty(document, 'adoptedStyleSheets', originalAdopted);
     } else {
-      delete (document as Record<string, unknown>).adoptedStyleSheets;
+      delete (document as unknown as Record<string, unknown>).adoptedStyleSheets;
     }
   }
 });

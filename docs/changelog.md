@@ -6,6 +6,19 @@
 
 ## [Unreleased] - Safari Personal Edition 重构开发中
 
+### Phase 5: Milestone 2 — 交互与悬浮卡片闭环 (Hover & Card Engine) - 2026-09-24
+- **WebKit 边界 Text 节点精准反查 (resolveTextCaret)**:
+  - `src/lib/hover.ts`: 实现 `resolveTextCaret`，在 WebKit / Safari 命中元素边缘返回 Element 容器与子节点索引时，平滑解析定位至真实目标 Text 节点与字符偏移，消除段落开头/结尾的命中盲区。
+  - `tokenAt`: 增加 `node.isConnected` 活性检验，确保从 DOM 树移除的孤立节点绝对不会被误命中。
+- **单例 DOM 架构与绝对安全渲染 (Strict textContent Sanitization)**:
+  - `src/lib/card.ts`: 彻底重构悬浮卡片生命周期。卡片内部所有 DOM 节点在构造函数中一次性建立完毕，后续所有的 hover 展示（词汇、原形、等级、音标、考试标签、本地中文释义）100% 采用 `textContent` 与 `replaceChildren` 动态填充，彻底废弃 `innerHTML` 与模板字符串拼接。
+  - 杜绝针对网页不可信输入（Untrusted Content）的任何 XSS 或样式注入风险；彻底消除高频 hover 下创建/销毁 DOM 的 GC 抖动与内存碎片。
+- **Hover & Card 核心回归测试套件**:
+  - 新增 `tests/hover-card.test.ts`: 覆盖 Element 边界解析、Token 词头/词中/词尾 hit-test、空白区域/未标注节点防护、脱离 DOM 节点过滤、卡片 show/update/hide 状态流转、单例 DOM 节点复用验证以及 XSS 恶意载荷纯文本转义安全验证。
+  - 自动化回归测试用例由 101 项增长至 107 项，全量通过 (pnpm test 1095ms)。
+- **Safari MV3 生产构建与打包更新**:
+  - 构建目录 `.output/safari-mv3/` (5.88MB) 与压缩包 `.output/glint-1.1.1-safari.zip` (2.22MB) 打包就绪。
+
 ### Phase 4: Milestone 1 — 扫描与高亮渲染闭环 (Scan & Highlight Engine) - 2026-09-24
 - **CSS Custom Highlight 样式注入双轨容灾机制**:
   - `src/lib/highlight.ts`: 在采用 `document.adoptedStyleSheets` 的基础上，增加 WebKit 隔离上下文 (Isolated World) 异常捕获与 `<style id="glint-mark-style">` 自动降级回退机制，确保在任何 WebKit 权限约束下样式均可稳定注入渲染。
