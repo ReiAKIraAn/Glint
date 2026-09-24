@@ -19,6 +19,7 @@ export interface ProviderStreamContext {
   readonly model: string;
   readonly apiKey: string;
   readonly baseURL?: string;
+  readonly extraBody?: Record<string, unknown>;
   readonly signal: AbortSignal;
   readonly onChunk: (delta: string) => void;
   readonly options?: {

@@ -15,7 +15,7 @@ import {
 import { DEFAULT_SETTINGS, type Settings } from '../src/lib/types';
 
 /**
- * [Milestone 4 Step 1 Automated Test Suite - Anthropic SSE Stream Network Layer]
+ * [Milestone 4 Step 1 Automated Test Suite - OpenAI SSE Stream Network Layer]
  * 严格覆盖 28+ 项场景：
  * A. SSE parsing (1-8)
  * B. Event filtering (9-12)
@@ -26,8 +26,8 @@ import { DEFAULT_SETTINGS, type Settings } from '../src/lib/types';
  * G. Additional edge cases (29-30)
  */
 
-const TEST_KEY = 'sk-ant-api03-test-token-valid-mock-key-123456';
-const ANTHROPIC_SETTINGS: Settings = { ...DEFAULT_SETTINGS, provider: 'anthropic' };
+const TEST_KEY = 'sk-proj-test-token-valid-mock-key-123456';
+const OPENAI_SETTINGS: Settings = { ...DEFAULT_SETTINGS, provider: 'openai' };
 const DEFAULT_PAYLOAD: AiStreamPayload = {
   word: 'sediment',
   lemma: 'sediment',
@@ -55,7 +55,7 @@ function createMockSseResponse(chunks: (string | Uint8Array)[], status = 200): R
 }
 
 function sseDelta(text: string): string {
-  return `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":${JSON.stringify(text)}}}\n\n`;
+  return `data: {"choices":[{"delta":{"content":${JSON.stringify(text)}}}]}\n\n`;
 }
 
 // ============================================================================
@@ -68,7 +68,7 @@ test('1. 单个 content_block_delta 正常解析并分发', async () => {
     createMockSseResponse([sseDelta('沉淀物')]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -89,7 +89,7 @@ test('2. 多个连续 delta 顺序组装', async () => {
     ]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -107,7 +107,7 @@ test('3. 一个 network chunk 包含多个 SSE event', async () => {
   const mockFetch: typeof fetch = async () => createMockSseResponse([combined]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -130,7 +130,7 @@ test('4. 一个 SSE event 跨多个 network chunk 拆分传输', async () => {
     createMockSseResponse([part1, part2, part3]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -157,7 +157,7 @@ test('5. UTF-8 多字节字符跨 network chunk 拆分 (无乱码)', async () =>
     createMockSseResponse([chunk1, chunk2]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -183,7 +183,7 @@ test('6. 多行、空行与 SSE 注释行 (: ping) 安全处理', async () => {
     createMockSseResponse(streamData);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -207,7 +207,7 @@ test('7. stream 正常结束并处理 message_stop 与 [DONE]', async () => {
     createMockSseResponse(streamData);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -221,13 +221,13 @@ test('7. stream 正常结束并处理 message_stop 与 [DONE]', async () => {
 test('8. 最后一个 event 没有额外 newline 也必须正确解析', async () => {
   const chunks: string[] = [];
   // 尾部不加 \n\n
-  const rawNoTrailing = `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"No trailing newline"}}`;
+  const rawNoTrailing = sseDelta('No trailing newline').replace(/\n\n$/, '');
 
   const mockFetch: typeof fetch = async () =>
     createMockSseResponse([rawNoTrailing]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -248,7 +248,7 @@ test('9. content_block_delta 文本增量分发给 onChunk', async () => {
     createMockSseResponse([sseDelta('Delta text')]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -263,19 +263,17 @@ test('9. content_block_delta 文本增量分发给 onChunk', async () => {
 test('10. 非文本 event 不产生用户文本', async () => {
   const chunks: string[] = [];
   const events = [
-    'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant"}}\n\n',
-    'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
-    'event: ping\ndata: {"type":"ping"}\n\n',
+    ': ping\n\n',
+    'data: {"id":"chatcmpl-1","choices":[]}\n\n',
+    'data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{}}]}\n\n',
     sseDelta('Real text'),
-    'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
-    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
-    'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    'data: [DONE]\n\n',
   ];
 
   const mockFetch: typeof fetch = async () => createMockSseResponse(events);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -289,14 +287,14 @@ test('10. 非文本 event 不产生用户文本', async () => {
 test('11. 未知 event 安全忽略不崩溃', async () => {
   const chunks: string[] = [];
   const events = [
-    'event: unknown_future_event\ndata: {"type":"unknown_future_event","foo":"bar"}\n\n',
+    'event: unknown_future_event\ndata: {"custom_field":"val"}\n\n',
     sseDelta('Text after unknown event'),
   ];
 
   const mockFetch: typeof fetch = async () => createMockSseResponse(events);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -309,7 +307,7 @@ test('11. 未知 event 安全忽略不崩溃', async () => {
 
 test('12. data 包含 malformed JSON 时抛出 ProviderProtocolError', async () => {
   const events = [
-    'event: content_block_delta\ndata: {unclosed_invalid_json\n\n',
+    'data: {unclosed_invalid_json\n\n',
   ];
 
   const mockFetch: typeof fetch = async () => createMockSseResponse(events);
@@ -317,7 +315,7 @@ test('12. data 包含 malformed JSON 时抛出 ProviderProtocolError', async () 
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -345,7 +343,7 @@ test('13. HTTP 200 正常流式返回', async () => {
   };
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -353,16 +351,15 @@ test('13. HTTP 200 正常流式返回', async () => {
     { fetchFn: mockFetch },
   );
 
-  assert.strictEqual(capturedHeaders['x-api-key'], TEST_KEY);
-  assert.strictEqual(capturedHeaders['anthropic-version'], '2023-06-01');
+  assert.strictEqual(capturedHeaders['authorization'], `Bearer ${TEST_KEY}`);
+  assert.strictEqual(capturedHeaders['content-type'], 'application/json');
 });
 
 test('14. HTTP 401 抛出 ProviderHttpError 并脱敏', async () => {
   const mockFetch: typeof fetch = async () =>
     new Response(
       JSON.stringify({
-        type: 'error',
-        error: { type: 'authentication_error', message: `Invalid key ${TEST_KEY}` },
+        error: { message: `Invalid key ${TEST_KEY}` },
       }),
       { status: 401 },
     );
@@ -370,7 +367,7 @@ test('14. HTTP 401 抛出 ProviderHttpError 并脱敏', async () => {
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -401,7 +398,7 @@ test('15. HTTP 429 限流抛出 ProviderHttpError', async () => {
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -424,7 +421,7 @@ test('16. HTTP 500 / 503 服务端异常抛出 ProviderHttpError', async () => {
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -466,7 +463,7 @@ test('17. 调用者 AbortSignal 触发时 fetch/reader 停止并抛出 ProviderA
 
   const chunks: string[] = [];
   const promise = fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     controller.signal,
@@ -501,7 +498,7 @@ test('18. abort 之后绝不再调用 onChunk', async () => {
   };
 
   const promise = fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     controller.signal,
@@ -530,7 +527,7 @@ test('19. timeout 发生时抛出 ProviderTimeoutError', async () => {
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -552,7 +549,7 @@ test('20. 正常完成时 timeout timer 被彻底清理 (无挂起 timer)', asyn
 
   // timeout 设置为较长时间，如果未被清理，测试进程将被挂起
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -574,7 +571,7 @@ test('21. response < 4000 字符正常完成', async () => {
     createMockSseResponse([sseDelta(text)]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -592,7 +589,7 @@ test('22. response == 4000 字符正好到达上限正常完成', async () => {
     createMockSseResponse([sseDelta(text)]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -615,7 +612,7 @@ test('23. response > 4000 字符时按冻结策略截断剩余字符并抛出 Pr
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -646,7 +643,7 @@ test('24. 单个超大 delta (4010 字符) 跨越 4000 边界：截取前 4000 �
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -674,7 +671,7 @@ test('25. API Key 绝不出现在请求 URL 中', async () => {
   };
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -682,7 +679,7 @@ test('25. API Key 绝不出现在请求 URL 中', async () => {
     { fetchFn: mockFetch },
   );
 
-  assert.strictEqual(requestedUrl, 'https://api.anthropic.com/v1/messages');
+  assert.strictEqual(requestedUrl, 'https://api.openai.com/v1/chat/completions');
   assert.strictEqual(requestedUrl.includes(TEST_KEY), false);
   assert.strictEqual(requestedUrl.includes('key='), false);
 });
@@ -695,7 +692,7 @@ test('26. API Key 绝不出现在 Error message 中 (包括网络报错与服务
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -721,7 +718,7 @@ test('27. API Key 绝不出现在测试输出与日志中', async () => {
   try {
     const mockFetch: typeof fetch = async () => createMockSseResponse([sseDelta('Normal')]);
     await fetchProviderStream(
-      ANTHROPIC_SETTINGS,
+      OPENAI_SETTINGS,
       TEST_KEY,
       DEFAULT_PAYLOAD,
       undefined,
@@ -746,7 +743,7 @@ test('28. 恶意 Provider 响应 (<script> 或越狱代码) 作为纯字符串�
     createMockSseResponse([sseDelta(maliciousText)]);
 
   await fetchProviderStream(
-    ANTHROPIC_SETTINGS,
+    OPENAI_SETTINGS,
     TEST_KEY,
     DEFAULT_PAYLOAD,
     undefined,
@@ -767,7 +764,7 @@ test('29. 空流响应 (Empty Stream) 抛出 ProviderProtocolError', async () =>
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,
@@ -783,7 +780,7 @@ test('29. 空流响应 (Empty Stream) 抛出 ProviderProtocolError', async () =>
 });
 
 test('30. Provider 流式错误事件 (event: error) 抛出 ProviderProtocolError 并脱敏', async () => {
-  const errorEvent = `event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Anthropic overloaded with key ${TEST_KEY}"}}\n\n`;
+  const errorEvent = `data: {"error":{"message":"OpenAI overloaded with key ${TEST_KEY}"}}\n\n`;
 
   const mockFetch: typeof fetch = async () =>
     createMockSseResponse([errorEvent]);
@@ -791,7 +788,7 @@ test('30. Provider 流式错误事件 (event: error) 抛出 ProviderProtocolErro
   await assert.rejects(
     () =>
       fetchProviderStream(
-        ANTHROPIC_SETTINGS,
+        OPENAI_SETTINGS,
         TEST_KEY,
         DEFAULT_PAYLOAD,
         undefined,

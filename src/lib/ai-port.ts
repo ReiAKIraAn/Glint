@@ -10,10 +10,10 @@ import {
   ProviderTimeoutError,
   UnsupportedProviderError,
 } from './provider-network';
-import { getProviderAdapter, hasProviderAdapter } from './providers';
+import { getProviderAdapter, hasProviderAdapter, parseAndValidateExtraBody } from './providers';
 import { safeErrorMessage } from './security';
 import { readSettings } from './settings';
-import { isConfigured, type Settings } from './types';
+import { isConfigured, PROVIDERS, type Settings } from './types';
 
 import { putExplanation } from './explanation-cache';
 
@@ -196,7 +196,7 @@ export function handleAiPortConnection(port: PortLike, deps?: AiPortHandlerDeps)
               type: 'AI_ERROR',
               requestId,
               code: 'UNSUPPORTED_PROVIDER',
-              message: '当前仅支持 Anthropic 服务商',
+              message: '当前服务商未受支持',
             },
             requestId,
           );
@@ -213,13 +213,13 @@ export function handleAiPortConnection(port: PortLike, deps?: AiPortHandlerDeps)
 
         if (state.isDisconnected || state.activeRequestId !== requestId) return;
 
-        if (!apiKey || !apiKey.trim()) {
+        if (!apiKey && !PROVIDERS[settings.provider]?.keyless) {
           safePost(
             {
               type: 'AI_ERROR',
               requestId,
               code: 'NO_API_KEY',
-              message: '未配置 Anthropic API Key',
+              message: '未配置 API Key',
             },
             requestId,
           );
@@ -256,12 +256,21 @@ export function handleAiPortConnection(port: PortLike, deps?: AiPortHandlerDeps)
           const model = settings.models?.[settings.provider] || '';
           const baseURL = settings.baseURLs?.[settings.provider];
 
+          let extraBody: Record<string, unknown> | undefined;
+          if (settings.provider === 'custom' && settings.customExtraBody) {
+            const parsed = parseAndValidateExtraBody(settings.customExtraBody);
+            if (parsed.ok) {
+              extraBody = parsed.data;
+            }
+          }
+
           await adapter.stream(
             payload,
             {
               model,
               apiKey,
               baseURL,
+              extraBody,
               signal: controller.signal,
               onChunk: (delta: string) => {
                 if (state.isDisconnected) return;

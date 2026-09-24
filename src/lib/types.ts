@@ -91,24 +91,12 @@ export const TARGET_NAMES: Record<Exclude<TargetExam, ''>, string> = {
  * 所以这里是一张表而不是一堆分支：加一家只要多写五行，不用多装一个包，
  * 也不会让后台再胖一圈。表里没有的，选「自定义」把地址填进去就是了。
  */
-export type Provider =
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'openrouter'
-  | 'deepseek'
-  | 'moonshot'
-  | 'zhipu'
-  | 'siliconflow'
-  | 'groq'
-  | 'opencode'
-  | 'ollama'
-  | 'compatible';
+export type Provider = 'openai' | 'deepseek' | 'custom';
 
 export interface ProviderSpec {
   name: string;
-  /** 走哪套 SDK。compatible = OpenAI 兼容协议。 */
-  kind: 'anthropic' | 'openai' | 'google' | 'compatible';
+  /** 走哪套 SDK / 适配协议。 */
+  kind: 'openai' | 'deepseek' | 'custom';
   /** 兼容接口的默认地址。设置页里可以改，改过的按服务商各存一份。 */
   baseURL?: string;
   /** 默认模型名。空字符串 = 各人装的不一样，必须自己填。 */
@@ -121,113 +109,32 @@ export interface ProviderSpec {
   keyURL?: string;
   /**
    * @lobehub/icons-static-svg 里的文件名（不含扩展名）。
-   *
-   * 只存名字不存 SVG：这张表内容脚本也要读，把十几个图标打进每个页面的 bundle 太亏。
-   * 真正的 import 只发生在设置页。
    */
   icon: string;
 }
 
 export const PROVIDERS: Record<Provider, ProviderSpec> = {
-  anthropic: {
-    name: 'Anthropic',
-    kind: 'anthropic',
-    model: 'claude-sonnet-5',
-    origin: 'https://api.anthropic.com/*',
-    keyURL: 'https://console.anthropic.com/settings/keys',
-    icon: 'anthropic',
-  },
   openai: {
     name: 'OpenAI',
     kind: 'openai',
-    model: 'gpt-5',
+    baseURL: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
     origin: 'https://api.openai.com/*',
     keyURL: 'https://platform.openai.com/api-keys',
     icon: 'openai',
   },
-  google: {
-    name: 'Google Gemini',
-    kind: 'google',
-    model: 'gemini-3-flash',
-    origin: 'https://generativelanguage.googleapis.com/*',
-    keyURL: 'https://aistudio.google.com/apikey',
-    icon: 'gemini-color',
-  },
-  openrouter: {
-    name: 'OpenRouter',
-    kind: 'compatible',
-    baseURL: 'https://openrouter.ai/api/v1',
-    model: 'anthropic/claude-sonnet-5',
-    origin: 'https://openrouter.ai/*',
-    keyURL: 'https://openrouter.ai/keys',
-    icon: 'openrouter-color',
-  },
-  opencode: {
-    name: 'OpenCode Zen',
-    kind: 'compatible',
-    baseURL: 'https://opencode.ai/zen/v1',
-    model: 'claude-sonnet-5',
-    origin: 'https://opencode.ai/*',
-    keyURL: 'https://opencode.ai/auth',
-    icon: 'opencode',
-  },
-  siliconflow: {
-    name: '硅基流动',
-    kind: 'compatible',
-    baseURL: 'https://api.siliconflow.cn/v1',
-    model: 'deepseek-ai/DeepSeek-V3',
-    origin: 'https://api.siliconflow.cn/*',
-    keyURL: 'https://cloud.siliconflow.cn/account/ak',
-    icon: 'siliconcloud-color',
-  },
   deepseek: {
     name: 'DeepSeek',
-    kind: 'compatible',
+    kind: 'deepseek',
     baseURL: 'https://api.deepseek.com',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-chat',
     origin: 'https://api.deepseek.com/*',
     keyURL: 'https://platform.deepseek.com/api_keys',
     icon: 'deepseek-color',
   },
-  moonshot: {
-    name: 'Kimi',
-    kind: 'compatible',
-    baseURL: 'https://api.moonshot.cn/v1',
-    model: 'moonshot-v1-8k',
-    origin: 'https://api.moonshot.cn/*',
-    keyURL: 'https://platform.kimi.com/console/api-keys',
-    icon: 'moonshot',
-  },
-  zhipu: {
-    name: '智谱 GLM',
-    kind: 'compatible',
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-4.5-flash',
-    origin: 'https://open.bigmodel.cn/*',
-    keyURL: 'https://bigmodel.cn/usercenter/apikeys',
-    icon: 'zhipu-color',
-  },
-  groq: {
-    name: 'Groq',
-    kind: 'compatible',
-    baseURL: 'https://api.groq.com/openai/v1',
-    model: 'llama-3.3-70b-versatile',
-    origin: 'https://api.groq.com/*',
-    keyURL: 'https://console.groq.com/keys',
-    icon: 'groq',
-  },
-  ollama: {
-    name: 'Ollama',
-    kind: 'compatible',
-    baseURL: 'http://localhost:11434/v1',
-    model: '',
-    origin: 'http://localhost/*',
-    keyless: true,
-    icon: 'ollama',
-  },
-  compatible: {
+  custom: {
     name: '自定义接口',
-    kind: 'compatible',
+    kind: 'custom',
     model: '',
     origin: '',
     icon: '',
@@ -295,13 +202,15 @@ export interface Settings {
   aiEnabled: boolean;
   provider: Provider;
   /** 每家各记一个模型名，来回切的时候不用重填 */
-  models: Record<Provider, string>;
+  models: Record<Provider, string> & Record<string, string>;
   effort: Effort;
   /**
    * 改过的接口地址，按服务商各存一份。没改过的不在这里，读的是 PROVIDERS 里的默认值——
    * 预置地址万一哪天变了（或者我填错了），用户自己改一行就能救，不用等我发版。
    */
-  baseURLs: Partial<Record<Provider, string>>;
+  baseURLs: Partial<Record<Provider, string>> & Record<string, string | undefined>;
+  /** 自定义接口的额外请求体（JSON 格式字符串） */
+  customExtraBody?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -314,10 +223,11 @@ export const DEFAULT_SETTINGS: Settings = {
   targetExam: '',
   disabledSites: [],
   aiEnabled: true,
-  provider: 'anthropic',
+  provider: 'openai',
   models: { ...DEFAULT_MODELS },
   effort: 'off',
   baseURLs: {},
+  customExtraBody: '{\n  "thinking_mode": false\n}',
 };
 
 // ------------------------------------------------------------ content ↔ background
@@ -405,8 +315,9 @@ export function modelOf(settings: Settings, provider = settings.provider): strin
  */
 export function isConfigured(settings: Settings, hasKey: boolean): boolean {
   const spec = PROVIDERS[settings.provider];
+  if (!spec) return false;
   if (!hasKey && !spec.keyless) return false;
   if (!modelOf(settings)) return false;
-  if (spec.kind === 'compatible' && !baseURLOf(settings)) return false;
+  if (spec.kind === 'custom' && !baseURLOf(settings)) return false;
   return true;
 }

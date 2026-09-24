@@ -12,23 +12,20 @@ import wxtConfig from '../wxt.config';
 test('originForProvider 为各预置 Provider 正确解析单一目标 Origin', () => {
   const settings: Settings = { ...DEFAULT_SETTINGS };
 
-  assert.strictEqual(originForProvider(settings, 'anthropic'), 'https://api.anthropic.com/*');
   assert.strictEqual(originForProvider(settings, 'openai'), 'https://api.openai.com/*');
-  assert.strictEqual(originForProvider(settings, 'google'), 'https://generativelanguage.googleapis.com/*');
   assert.strictEqual(originForProvider(settings, 'deepseek'), 'https://api.deepseek.com/*');
-  assert.strictEqual(originForProvider(settings, 'ollama'), 'http://localhost/*');
 });
 
-test('originForProvider 正确解析自定义 Compatible Provider 的 Origin', () => {
+test('originForProvider 正确解析自定义 Custom Provider 的 Origin', () => {
   const settings: Settings = {
     ...DEFAULT_SETTINGS,
-    provider: 'compatible',
+    provider: 'custom',
     baseURLs: {
-      compatible: 'https://custom-ai.company.internal/v1',
+      custom: 'https://custom-ai.company.internal/v1',
     },
   };
 
-  const origin = originForProvider(settings, 'compatible');
+  const origin = originForProvider(settings, 'custom');
   assert.strictEqual(origin, 'https://custom-ai.company.internal/*');
 });
 
@@ -40,19 +37,18 @@ test('Safari 构建配置严格践行最小权限原则 (Least-Privilege)', () =
   const safariManifest = manifestFn({ browser: 'safari' });
   const chromeManifest = manifestFn({ browser: 'chrome' });
 
-  // 1. Safari 必须零预置 host_permissions，彻底消除安装时的 10+ 商业域名弹窗警示
+  // 1. Safari 必须零预置 host_permissions，彻底消除安装时的商业域名弹窗警示
   assert.deepStrictEqual(
     safariManifest.host_permissions,
     [],
     'Safari Personal Edition 的 required host_permissions 必须为空数组',
   );
 
-  // 2. Safari 的 optional_host_permissions 必须包含预置 provider 域名，且严禁包含全站通配符 https://*/*
+  // 2. Safari 的 optional_host_permissions 必须包含预置 provider 域名，且移除了已下线的 Anthropic
   const safariOptional = safariManifest.optional_host_permissions as string[];
-  assert.ok(safariOptional.includes('https://api.anthropic.com/*'));
   assert.ok(safariOptional.includes('https://api.openai.com/*'));
-  assert.ok(safariOptional.includes('https://generativelanguage.googleapis.com/*'));
   assert.ok(safariOptional.includes('https://api.deepseek.com/*'));
+  assert.strictEqual(safariOptional.includes('https://api.anthropic.com/*'), false, '已下线的 Anthropic 不得出现在权限清单中');
   assert.strictEqual(
     safariOptional.includes('https://*/*'),
     false,

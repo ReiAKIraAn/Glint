@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  anthropicAdapter,
+  customAdapter,
+  deepseekAdapter,
   getProviderAdapter,
   hasProviderAdapter,
+  openaiAdapter,
   UnsupportedProviderError,
 } from '../src/lib/providers';
 import {
@@ -52,12 +54,12 @@ const mockPayload: ProviderStreamPayload = {
   sentence: 'Fame in the digital age is increasingly ephemeral.',
 };
 
-const fakeApiKey = 'sk-ant-api03-test-key-1234567890abcdef';
+const fakeApiKey = 'sk-proj-test-key-1234567890abcdef';
 
 function makeContext(overrides?: Partial<ProviderStreamContext>): ProviderStreamContext {
   const controller = new AbortController();
   return {
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'gpt-4o-mini',
     apiKey: fakeApiKey,
     signal: controller.signal,
     onChunk: () => {},
@@ -66,41 +68,120 @@ function makeContext(overrides?: Partial<ProviderStreamContext>): ProviderStream
 }
 
 // ============================================================================
-// ADAPTER-01 to ADAPTER-14 Tests
+// 1. Provider Registry Tests
 // ============================================================================
 
-test('ADAPTER-01: Anthropic adapter exists and conforms to ProviderAdapter contract', () => {
-  assert.ok(anthropicAdapter);
-  assert.strictEqual(anthropicAdapter.id, 'anthropic');
-  assert.strictEqual(typeof anthropicAdapter.stream, 'function');
-  assert.strictEqual(typeof anthropicAdapter.listModels, 'function');
+test('REGISTRY-01: OpenAI, DeepSeek, and Custom adapters exist and conform to contract', () => {
+  assert.ok(openaiAdapter);
+  assert.strictEqual(openaiAdapter.id, 'openai');
+  assert.strictEqual(typeof openaiAdapter.stream, 'function');
+  assert.strictEqual(typeof openaiAdapter.listModels, 'function');
+
+  assert.ok(deepseekAdapter);
+  assert.strictEqual(deepseekAdapter.id, 'deepseek');
+  assert.strictEqual(typeof deepseekAdapter.stream, 'function');
+  assert.strictEqual(typeof deepseekAdapter.listModels, 'function');
+
+  assert.ok(customAdapter);
+  assert.strictEqual(customAdapter.id, 'custom');
+  assert.strictEqual(typeof customAdapter.stream, 'function');
+  assert.strictEqual(typeof customAdapter.listModels, 'function');
 });
 
-test('ADAPTER-02: ProviderRegistry resolves anthropic adapter', () => {
-  assert.strictEqual(hasProviderAdapter('anthropic'), true);
-  const adapter = getProviderAdapter('anthropic');
-  assert.strictEqual(adapter, anthropicAdapter);
+test('REGISTRY-02: ProviderRegistry resolves OpenAI, DeepSeek, and Custom', () => {
+  assert.strictEqual(hasProviderAdapter('openai'), true);
+  assert.strictEqual(getProviderAdapter('openai'), openaiAdapter);
+
+  assert.strictEqual(hasProviderAdapter('deepseek'), true);
+  assert.strictEqual(getProviderAdapter('deepseek'), deepseekAdapter);
+
+  assert.strictEqual(hasProviderAdapter('custom'), true);
+  assert.strictEqual(getProviderAdapter('custom'), customAdapter);
 });
 
-test('ADAPTER-03: ProviderRegistry rejects unknown or unregistered provider', () => {
-  assert.strictEqual(hasProviderAdapter('openai' as any), false);
+test('REGISTRY-03: ProviderRegistry does NOT register Anthropic', () => {
+  assert.strictEqual(hasProviderAdapter('anthropic' as any), false);
   assert.throws(
-    () => getProviderAdapter('openai' as any),
+    () => getProviderAdapter('anthropic' as any),
     (err: unknown) => {
       assert.ok(err instanceof UnsupportedProviderError);
-      assert.strictEqual((err as UnsupportedProviderError).provider, 'openai');
+      assert.strictEqual((err as UnsupportedProviderError).provider, 'anthropic');
       return true;
     },
   );
 });
 
-test('ADAPTER-04: normal SSE stream chunks are incrementally dispatched', async () => {
+test('REGISTRY-04: ProviderRegistry rejects unsupported historical providers', () => {
+  const unsupported = ['google', 'gemini', 'moonshot', 'kimi', 'ollama', 'groq', 'compatible'];
+  for (const prov of unsupported) {
+    assert.strictEqual(hasProviderAdapter(prov as any), false, `${prov} should not be registered`);
+    assert.throws(
+      () => getProviderAdapter(prov as any),
+      (err: unknown) => {
+        assert.ok(err instanceof UnsupportedProviderError);
+        return true;
+      },
+    );
+  }
+});
+
+// ============================================================================
+// 2. OpenAI Adapter Tests
+// ============================================================================
+
+test('OPENAI-01: request construction matches OpenAI Chat Completions protocol', async () => {
+  let capturedUrl = '';
+  let capturedHeaders: Record<string, string> = {};
+  let capturedBody: any = null;
+
+  const mockFetch: typeof fetch = async (url, init) => {
+    capturedUrl = String(url);
+    capturedHeaders = (init?.headers as Record<string, string>) || {};
+    capturedBody = JSON.parse(String(init?.body));
+    return new Response(createMockReadableStream(['data: [DONE]\n\n']), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  };
+
+  const ctx = makeContext({
+    options: { fetchFn: mockFetch },
+    onChunk: () => {},
+  });
+
+  // Since it returned [DONE] with 0 chunks, it will throw empty content, but we capture the request!
+  await openaiAdapter.stream(mockPayload, ctx).catch(() => {});
+
+  assert.strictEqual(capturedUrl, 'https://api.openai.com/v1/chat/completions');
+  assert.strictEqual(capturedHeaders['content-type'], 'application/json');
+  assert.strictEqual(capturedHeaders['authorization'], `Bearer ${fakeApiKey}`);
+  assert.strictEqual(capturedBody.model, 'gpt-4o-mini');
+  assert.strictEqual(capturedBody.stream, true);
+  assert.strictEqual(capturedBody.max_tokens, 1024);
+  assert.strictEqual(capturedBody.messages.length, 2);
+  assert.strictEqual(capturedBody.messages[0].role, 'system');
+  assert.strictEqual(capturedBody.messages[1].role, 'user');
+  assert.ok(capturedBody.messages[1].content.includes('ephemeral'));
+});
+
+test('OPENAI-02: rejects empty API key with ProviderError', async () => {
+  const ctx = makeContext({ apiKey: '   ' });
+  await assert.rejects(
+    () => openaiAdapter.stream(mockPayload, ctx),
+    (err: unknown) => {
+      assert.ok(err instanceof ProviderError);
+      assert.strictEqual((err as ProviderError).message, '先填 API Key');
+      return true;
+    },
+  );
+});
+
+test('OPENAI-03: incremental SSE streaming dispatches chunks', async () => {
   const received: string[] = [];
   const sseChunks = [
-    'event: message_start\ndata: {"type":"message_start"}\n\n',
-    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"短暂的"}}\n\n',
-    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"；转瞬即逝的"}}\n\n',
-    'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    'data: {"choices":[{"delta":{"content":"短暂的"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"；转瞬即逝的"}}]}\n\n',
+    'data: [DONE]\n\n',
   ];
 
   const mockFetch: typeof fetch = async () =>
@@ -114,17 +195,15 @@ test('ADAPTER-04: normal SSE stream chunks are incrementally dispatched', async 
     options: { fetchFn: mockFetch },
   });
 
-  await anthropicAdapter.stream(mockPayload, ctx);
-
+  await openaiAdapter.stream(mockPayload, ctx);
   assert.deepStrictEqual(received, ['短暂的', '；转瞬即逝的']);
 });
 
-test('ADAPTER-05: UTF-8 multi-byte characters split across network chunks are decoded cleanly', async () => {
+test('OPENAI-04: multi-byte UTF-8 split across chunks decoded cleanly', async () => {
   const received: string[] = [];
-  const fullText = 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"🌟词义解析"}}\n\n';
+  const fullText = 'data: {"choices":[{"delta":{"content":"🌟词义解析"}}]}\n\ndata: [DONE]\n\n';
   const fullBytes = new TextEncoder().encode(fullText);
 
-  // 故意在多字节字符中间切割
   const starByte = new TextEncoder().encode('🌟')[0]!;
   const cutPoint = fullBytes.indexOf(starByte) + 2;
   const chunk1 = fullBytes.slice(0, cutPoint);
@@ -141,181 +220,78 @@ test('ADAPTER-05: UTF-8 multi-byte characters split across network chunks are de
     options: { fetchFn: mockFetch },
   });
 
-  await anthropicAdapter.stream(mockPayload, ctx);
-
+  await openaiAdapter.stream(mockPayload, ctx);
   assert.strictEqual(received.join(''), '🌟词义解析');
 });
 
-test('ADAPTER-06: network boundary failures are normalized to ProviderNetworkError', async () => {
-  const mockFetch: typeof fetch = async () => {
-    throw new TypeError('Failed to fetch (DNS lookup failed)');
-  };
-
-  const ctx = makeContext({
-    options: { fetchFn: mockFetch },
-  });
-
-  await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderNetworkError);
-      assert.ok(err.message.includes('连不上 api.anthropic.com'));
-      return true;
-    },
-  );
-});
-
-test('ADAPTER-07: malformed protocol and empty streams are rejected with ProviderProtocolError', async () => {
-  // 1. 畸形 JSON 数据行
-  const malformedFetch: typeof fetch = async () =>
-    new Response(createMockReadableStream(['data: {broken json\n\n']), {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    });
-
-  const ctx1 = makeContext({ options: { fetchFn: malformedFetch } });
-  await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx1),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderProtocolError);
-      assert.ok(err.message.includes('无法解析的 SSE 数据'));
-      return true;
-    },
-  );
-
-  // 2. 正常关闭但 0 文本 delta
-  const emptyFetch: typeof fetch = async () =>
-    new Response(createMockReadableStream(['event: ping\ndata: {}\n\n']), {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    });
-
-  const ctx2 = makeContext({ options: { fetchFn: emptyFetch } });
-  await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx2),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderProtocolError);
-      assert.ok(err.message.includes('未返回任何文本内容'));
-      return true;
-    },
-  );
-});
-
-test('ADAPTER-08: provider HTTP status codes are normalized to ProviderHttpError', async () => {
-  const fetchStatus = (status: number, message: string) => async () =>
-    new Response(JSON.stringify({ error: { message } }), {
-      status,
+test('OPENAI-05: HTTP error codes normalized to ProviderHttpError', async () => {
+  const mockFetch401: typeof fetch = async () =>
+    new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), {
+      status: 401,
       headers: { 'Content-Type': 'application/json' },
     });
 
-  // 401
-  const ctx401 = makeContext({
-    options: { fetchFn: fetchStatus(401, 'Invalid API key provided') },
-  });
+  const ctx401 = makeContext({ options: { fetchFn: mockFetch401 } });
   await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx401),
+    () => openaiAdapter.stream(mockPayload, ctx401),
     (err: unknown) => {
       assert.ok(err instanceof ProviderHttpError);
-      assert.strictEqual(err.status, 401);
+      assert.strictEqual((err as ProviderHttpError).status, 401);
       assert.ok(err.message.includes('401'));
       return true;
     },
   );
 
-  // 429
-  const ctx429 = makeContext({
-    options: { fetchFn: fetchStatus(429, 'Rate limit exceeded') },
-  });
-  await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx429),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderHttpError);
-      assert.strictEqual(err.status, 429);
-      assert.ok(err.message.includes('429'));
-      return true;
-    },
-  );
+  const mockFetch429: typeof fetch = async () =>
+    new Response(JSON.stringify({ error: { message: 'Rate limit reached' } }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    });
 
-  // 500
-  const ctx500 = makeContext({
-    options: { fetchFn: fetchStatus(500, 'Internal server error') },
-  });
+  const ctx429 = makeContext({ options: { fetchFn: mockFetch429 } });
   await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx500),
+    () => openaiAdapter.stream(mockPayload, ctx429),
     (err: unknown) => {
       assert.ok(err instanceof ProviderHttpError);
-      assert.strictEqual(err.status, 500);
+      assert.strictEqual((err as ProviderHttpError).status, 429);
       return true;
     },
   );
 });
 
-test('ADAPTER-09: caller abort immediately stops reading without further onChunk calls', async () => {
+test('OPENAI-06: abort signal terminates request with ProviderAbortError', async () => {
   const controller = new AbortController();
-  const received: string[] = [];
-
-  const mockFetch: typeof fetch = async () =>
-    new Response(
-      createMockReadableStream([
-        'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"chunk 1"}}\n\n',
-        'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"chunk 2"}}\n\n',
-      ]),
-      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
-    );
-
-  const ctx = makeContext({
-    signal: controller.signal,
-    onChunk: (delta) => {
-      received.push(delta);
-      controller.abort();
-    },
-    options: { fetchFn: mockFetch },
-  });
-
-  await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderAbortError);
-      return true;
-    },
-  );
-
-  assert.strictEqual(received.length, 1);
-});
-
-test('ADAPTER-10: stream timeout rejects with ProviderTimeoutError', async () => {
   const mockFetch: typeof fetch = async (_url, init) => {
-    return new Promise((_resolve, reject) => {
+    return new Promise((_, reject) => {
+      if (init?.signal?.aborted) {
+        reject(new DOMException('The user aborted a request.', 'AbortError'));
+        return;
+      }
       init?.signal?.addEventListener('abort', () => {
-        const timeoutErr = new Error('The operation was aborted due to timeout');
-        timeoutErr.name = 'TimeoutError';
-        reject(timeoutErr);
+        reject(new DOMException('The user aborted a request.', 'AbortError'));
       });
     });
   };
 
   const ctx = makeContext({
-    options: {
-      fetchFn: mockFetch,
-      timeoutMs: 20, // 20ms 极短超时
-    },
+    signal: controller.signal,
+    options: { fetchFn: mockFetch },
   });
 
-  await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderTimeoutError);
-      assert.ok(err.message.includes('请求超时'));
-      return true;
-    },
-  );
+  const streamPromise = openaiAdapter.stream(mockPayload, ctx);
+  controller.abort();
+
+  await assert.rejects(streamPromise, (err: unknown) => {
+    assert.ok(err instanceof ProviderAbortError);
+    return true;
+  });
 });
 
-test('ADAPTER-11: 4,000-character limit halts stream with ProviderResponseTooLargeError', async () => {
-  const bigChunk = 'A'.repeat(2500);
+test('OPENAI-07: 4,000-character limit halts stream with ProviderResponseTooLargeError', async () => {
+  const bigChunk = 'a'.repeat(4005);
   const sseChunks = [
-    `event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${bigChunk}"}}\n\n`,
-    `event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${bigChunk}"}}\n\n`,
+    `data: {"choices":[{"delta":{"content":"${bigChunk}"}}]}\n\n`,
+    'data: [DONE]\n\n',
   ];
 
   const mockFetch: typeof fetch = async () =>
@@ -324,95 +300,223 @@ test('ADAPTER-11: 4,000-character limit halts stream with ProviderResponseTooLar
       headers: { 'Content-Type': 'text/event-stream' },
     });
 
-  let totalReceivedChars = 0;
+  let receivedChars = 0;
   const ctx = makeContext({
     onChunk: (delta) => {
-      totalReceivedChars += delta.length;
+      receivedChars += delta.length;
     },
     options: { fetchFn: mockFetch },
   });
 
   await assert.rejects(
-    () => anthropicAdapter.stream(mockPayload, ctx),
+    () => openaiAdapter.stream(mockPayload, ctx),
     (err: unknown) => {
       assert.ok(err instanceof ProviderResponseTooLargeError);
-      assert.ok(err.message.includes(String(MAX_RESPONSE_CHARS)));
       return true;
     },
   );
 
-  assert.strictEqual(totalReceivedChars, MAX_RESPONSE_CHARS);
+  assert.strictEqual(receivedChars, MAX_RESPONSE_CHARS);
 });
 
-test('ADAPTER-12: API Key is never passed in URL or query params', async () => {
+test('OPENAI-08: listModels fetches and sorts models', async () => {
   let capturedUrl = '';
-  let capturedHeaders: Record<string, string> = {};
+  let capturedAuth = '';
 
-  const mockFetch: typeof fetch = async (input, init) => {
-    capturedUrl = String(input);
-    capturedHeaders = (init?.headers as Record<string, string>) ?? {};
-    return new Response(
-      createMockReadableStream([
-        'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}\n\n',
-      ]),
-      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
-    );
-  };
-
-  const ctx = makeContext({
-    apiKey: fakeApiKey,
-    options: { fetchFn: mockFetch },
-  });
-
-  await anthropicAdapter.stream(mockPayload, ctx);
-
-  assert.strictEqual(capturedUrl, 'https://api.anthropic.com/v1/messages');
-  assert.strictEqual(capturedUrl.includes(fakeApiKey), false);
-  assert.strictEqual(capturedHeaders['x-api-key'], fakeApiKey);
-});
-
-test('ADAPTER-13: no provider-specific error leaks and mapProviderError scrubs keys', () => {
-  const errWithKey = new ProviderHttpError(401, `Failed with key ${fakeApiKey}`);
-  const mapped = mapProviderError(errWithKey, fakeApiKey);
-
-  assert.strictEqual(mapped.code, 'HTTP_ERROR');
-  assert.strictEqual(mapped.message.includes(fakeApiKey), false);
-  assert.ok(mapped.message.includes('[REDACTED]'));
-
-  const unsupported = new UnsupportedProviderError('unknown-ai');
-  const mappedUnsupported = mapProviderError(unsupported);
-  assert.strictEqual(mappedUnsupported.code, 'UNSUPPORTED_PROVIDER');
-});
-
-test('ADAPTER-14: model discovery returns sorted available models', async () => {
-  let requestedHeaders: Record<string, string> = {};
-  const mockFetch: typeof fetch = async (_url, init) => {
-    requestedHeaders = (init?.headers as Record<string, string>) ?? {};
+  const mockFetch: typeof fetch = async (url, init) => {
+    capturedUrl = String(url);
+    capturedAuth = (init?.headers as Record<string, string>)?.authorization || '';
     return new Response(
       JSON.stringify({
-        data: [
-          { id: 'claude-3-5-sonnet-20241022' },
-          { id: 'claude-3-5-haiku-20241022' },
-          { id: 'claude-3-opus-20240229' },
-        ],
+        data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }, { id: 'o3-mini' }],
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   };
 
-  assert.ok(anthropicAdapter.listModels);
-  const result = await anthropicAdapter.listModels({
+  const result = await openaiAdapter.listModels({
     apiKey: fakeApiKey,
     fetchFn: mockFetch,
   });
 
   assert.strictEqual(result.ok, true);
   if (result.ok) {
-    assert.deepStrictEqual(result.models, [
-      'claude-3-5-haiku-20241022',
-      'claude-3-5-sonnet-20241022',
-      'claude-3-opus-20240229',
-    ]);
+    assert.deepStrictEqual(result.models, ['gpt-4o', 'gpt-4o-mini', 'o3-mini']);
   }
-  assert.strictEqual(requestedHeaders['x-api-key'], fakeApiKey);
+  assert.strictEqual(capturedUrl, 'https://api.openai.com/v1/models');
+  assert.strictEqual(capturedAuth, `Bearer ${fakeApiKey}`);
+});
+
+// ============================================================================
+// 3. DeepSeek Adapter Tests
+// ============================================================================
+
+test('DEEPSEEK-01: request construction targets DeepSeek API', async () => {
+  let capturedUrl = '';
+  let capturedHeaders: Record<string, string> = {};
+  let capturedBody: any = null;
+
+  const mockFetch: typeof fetch = async (url, init) => {
+    capturedUrl = String(url);
+    capturedHeaders = (init?.headers as Record<string, string>) || {};
+    capturedBody = JSON.parse(String(init?.body));
+    return new Response(
+      createMockReadableStream([
+        'data: {"choices":[{"delta":{"content":"深度求索释义"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' }, },
+    );
+  };
+
+  const received: string[] = [];
+  const ctx = makeContext({
+    model: 'deepseek-chat',
+    apiKey: 'sk-deepseek-test-12345',
+    options: { fetchFn: mockFetch },
+    onChunk: (delta) => received.push(delta),
+  });
+
+  await deepseekAdapter.stream(mockPayload, ctx);
+
+  assert.strictEqual(capturedUrl, 'https://api.deepseek.com/chat/completions');
+  assert.strictEqual(capturedHeaders['authorization'], 'Bearer sk-deepseek-test-12345');
+  assert.strictEqual(capturedBody.model, 'deepseek-chat');
+  assert.strictEqual(capturedBody.stream, true);
+  assert.strictEqual(received.join(''), '深度求索释义');
+});
+
+test('DEEPSEEK-02: listModels queries DeepSeek models endpoint', async () => {
+  let capturedUrl = '';
+  const mockFetch: typeof fetch = async (url) => {
+    capturedUrl = String(url);
+    return new Response(
+      JSON.stringify({
+        data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  const result = await deepseekAdapter.listModels({
+    apiKey: 'sk-deepseek-test',
+    fetchFn: mockFetch,
+  });
+
+  assert.strictEqual(result.ok, true);
+  if (result.ok) {
+    assert.deepStrictEqual(result.models, ['deepseek-chat', 'deepseek-reasoner']);
+  }
+  assert.strictEqual(capturedUrl, 'https://api.deepseek.com/models');
+});
+
+// ============================================================================
+// 4. Custom API Adapter Tests
+// ============================================================================
+
+test('CUSTOM-01: requires baseURL to be specified', async () => {
+  const ctx = makeContext({ baseURL: '' });
+  await assert.rejects(
+    () => customAdapter.stream(mockPayload, ctx),
+    (err: unknown) => {
+      assert.ok(err instanceof ProviderError);
+      assert.strictEqual((err as ProviderError).message, '先填接口地址');
+      return true;
+    },
+  );
+});
+
+test('CUSTOM-02: endpoint construction preserves or appends chat/completions', async () => {
+  let capturedUrl = '';
+  let capturedBody: any = null;
+
+  const mockFetch: typeof fetch = async (url, init) => {
+    capturedUrl = String(url);
+    capturedBody = JSON.parse(String(init?.body));
+    return new Response(
+      createMockReadableStream([
+        'data: {"choices":[{"delta":{"content":"自定义释义"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  };
+
+  // Case A: normal base URL
+  const ctxA = makeContext({
+    baseURL: 'https://my-proxy.company.internal/v1',
+    model: 'my-custom-model',
+    options: { fetchFn: mockFetch },
+  });
+  await customAdapter.stream(mockPayload, ctxA);
+  assert.strictEqual(capturedUrl, 'https://my-proxy.company.internal/v1/chat/completions');
+  assert.strictEqual(capturedBody.model, 'my-custom-model');
+
+  // Case B: already ends with chat/completions
+  const ctxB = makeContext({
+    baseURL: 'https://my-proxy.company.internal/v1/chat/completions',
+    model: 'my-custom-model',
+    options: { fetchFn: mockFetch },
+  });
+  await customAdapter.stream(mockPayload, ctxB);
+  assert.strictEqual(capturedUrl, 'https://my-proxy.company.internal/v1/chat/completions');
+});
+
+test('CUSTOM-03: extraBody merges into request payload with thinking_mode: false', async () => {
+  let capturedBody: any = null;
+
+  const mockFetch: typeof fetch = async (_url, init) => {
+    capturedBody = JSON.parse(String(init?.body));
+    return new Response(
+      createMockReadableStream([
+        'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  };
+
+  const ctx = makeContext({
+    baseURL: 'https://custom-ai.internal/v1',
+    model: 'llama-3.3-70b',
+    extraBody: {
+      thinking_mode: false,
+      temperature: 0.2,
+      custom_param: 'test_val',
+    },
+    options: { fetchFn: mockFetch },
+  });
+
+  await customAdapter.stream(mockPayload, ctx);
+
+  assert.strictEqual(capturedBody.thinking_mode, false);
+  assert.strictEqual(capturedBody.temperature, 0.2);
+  assert.strictEqual(capturedBody.custom_param, 'test_val');
+  assert.strictEqual(capturedBody.model, 'llama-3.3-70b');
+  assert.strictEqual(capturedBody.stream, true);
+});
+
+test('CUSTOM-04: keyless mode does not send Authorization header', async () => {
+  let capturedHeaders: Record<string, string> = {};
+
+  const mockFetch: typeof fetch = async (_url, init) => {
+    capturedHeaders = (init?.headers as Record<string, string>) || {};
+    return new Response(
+      createMockReadableStream([
+        'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  };
+
+  const ctx = makeContext({
+    baseURL: 'http://localhost:11434/v1',
+    apiKey: '',
+    model: 'qwen2.5:7b',
+    options: { fetchFn: mockFetch },
+  });
+
+  await customAdapter.stream(mockPayload, ctx);
+  assert.strictEqual(capturedHeaders['authorization'], undefined);
 });

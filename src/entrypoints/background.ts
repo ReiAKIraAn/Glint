@@ -1,5 +1,3 @@
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { APICallError, generateText, type LanguageModel } from 'ai';
@@ -199,7 +197,7 @@ async function allowed(url: string): Promise<boolean> {
 
 const endpointOf = (settings: Settings): string => {
   const spec = PROVIDERS[settings.provider];
-  return spec.kind === 'compatible' ? baseURLOf(settings) : spec.origin.replace('/*', '');
+  return spec.kind === 'custom' ? baseURLOf(settings) : spec.origin.replace('/*', '');
 };
 
 async function analyze(word: string, lemma: string, sentence: string): Promise<Result> {
@@ -250,19 +248,17 @@ async function analyze(word: string, lemma: string, sentence: string): Promise<R
 function languageModel(settings: Settings, apiKey: string): LanguageModel {
   const model = modelOf(settings);
   switch (PROVIDERS[settings.provider].kind) {
-    case 'anthropic':
-      return createAnthropic({
-        apiKey,
-        headers: { 'anthropic-dangerous-direct-browser-access': 'true' },
-      })(model);
     case 'openai':
-      return createOpenAI({ apiKey })(model);
-    case 'google':
-      return createGoogleGenerativeAI({ apiKey })(model);
-    case 'compatible':
-      // name 固定成 compatible，下面那张思考强度的表才好按它取到 providerOptions
+      return createOpenAI({ apiKey, baseURL: baseURLOf(settings) || undefined })(model);
+    case 'deepseek':
       return createOpenAICompatible({
-        name: 'compatible',
+        name: 'deepseek',
+        apiKey,
+        baseURL: baseURLOf(settings) || 'https://api.deepseek.com',
+      })(model);
+    case 'custom':
+      return createOpenAICompatible({
+        name: 'custom',
         apiKey,
         baseURL: baseURLOf(settings),
       })(model);
@@ -281,34 +277,21 @@ const MODELS_TIMEOUT = 20_000;
 /** 释义得等模型把话说完，高思考强度下正常就要几十秒，给得比拉列表宽得多。 */
 const ANALYZE_TIMEOUT = 90_000;
 
-/** 思考预算。上限也跟着涨——Anthropic 要求 max_tokens 必须大于思考预算。 */
+/** 思考预算。上限也跟着涨。 */
 const THINKING_BUDGET: Record<Effort, number> = { off: 0, low: 1024, medium: 4096, high: 12000 };
 
 /**
- * 同一个「思考强度」在四家的说法都不一样，这里翻译一遍。
+ * 同一个「思考强度」在各家的说法都不一样，这里翻译一遍。
  *
- * compatible 那一路是原样透传 `reasoning_effort`，不认这个字段的服务会直接报 400，
+ * 兼容接口那一派是原样透传 `reasoning_effort`，不认这个字段的服务会直接报 400，
  * 所以选了「不思考」就干脆什么都不发——大多数兼容接口在这条路上才是安全的。
  */
 function effortOptions(provider: Provider, effort: Effort): ProviderOptions {
   switch (PROVIDERS[provider].kind) {
-    case 'anthropic':
-      return {
-        anthropic:
-          effort === 'off'
-            ? { thinking: { type: 'disabled' } }
-            : { thinking: { type: 'enabled', budgetTokens: THINKING_BUDGET[effort] } },
-      };
     case 'openai':
       return { openai: { reasoningEffort: effort === 'off' ? 'none' : effort } };
-    case 'google':
-      return {
-        google:
-          effort === 'off'
-            ? { thinkingConfig: { thinkingBudget: 0 } }
-            : { thinkingConfig: { thinkingLevel: effort } },
-      };
-    case 'compatible':
+    case 'deepseek':
+    case 'custom':
       return effort === 'off' ? {} : { compatible: { reasoningEffort: effort } };
   }
 }

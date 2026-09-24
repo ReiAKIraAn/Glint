@@ -12,20 +12,19 @@ import type { Provider } from './types';
  * 所以：只有 background 和设置页 import 这里，内容脚本的依赖图碰不到它。
  * 加东西之前先想清楚会不会被内容脚本间接引用。
  */
-export const apiKeysStore = storage.defineItem<Partial<Record<Provider, string>>>(
-  'local:apiKeys',
-  { fallback: {} },
-);
+export const apiKeysStore = storage.defineItem<
+  Partial<Record<Provider, string>> & Partial<Record<string, string>>
+>('local:apiKeys', { fallback: {} });
 
-/** 只支持 Anthropic 那个版本留下的单把 Key，只在迁移时读一次。 */
+/** 只支持早期版本留下的单把 Key，只在迁移时读一次。 */
 const legacyKeyStore = storage.defineItem<string>('local:apiKey', { fallback: '' });
 
-/** 老版本升上来的一次性搬运：单把 Key → Anthropic 那一格。background 启动时调。 */
+/** 老版本升上来的一次性搬运：单把 Key → 默认 Provider (OpenAI) 那一格。background 启动时调。 */
 export async function migrateLegacyKey() {
   const legacy = await legacyKeyStore.getValue();
   if (!legacy) return;
   const keys = await apiKeysStore.getValue();
-  if (!keys.anthropic) await apiKeysStore.setValue({ ...keys, anthropic: legacy });
+  if (!keys.openai) await apiKeysStore.setValue({ ...keys, openai: legacy });
   await legacyKeyStore.removeValue();
 }
 

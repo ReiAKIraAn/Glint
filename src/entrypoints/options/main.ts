@@ -42,6 +42,7 @@ import {
   requestHostPermission,
   revokeHostPermission,
 } from '@/lib/permissions';
+import { DEFAULT_EXTRA_BODY_STRING, parseAndValidateExtraBody } from '@/lib/providers/extra-body';
 import { mountContactLinks } from '@/lib/links';
 import { escapeHtml as escape, boldWord } from '@/lib/text';
 import { toAnkiTSV, type AnkiRow } from '@/lib/anki';
@@ -118,6 +119,7 @@ const fields = {
   baseURL: $<HTMLInputElement>('baseURL'),
   apiKey: $<HTMLInputElement>('apiKey'),
   keyStatus: $<HTMLSpanElement>('keyStatus'),
+  extraBody: $<HTMLTextAreaElement>('extraBody'),
 };
 
 /** 页面里的一份当前设置。改动即时落盘，同时驱动右侧预览。 */
@@ -156,6 +158,7 @@ function paintForm() {
   fields.markUnknown.checked = settings.markUnknown;
   fields.aiEnabled.checked = settings.aiEnabled;
   fields.effort.value = settings.effort;
+  fields.extraBody.value = settings.customExtraBody || DEFAULT_EXTRA_BODY_STRING;
 
   const styleInput = document.querySelector<HTMLInputElement>(
     `input[name="style"][value="${settings.style}"]`,
@@ -245,16 +248,21 @@ function paintProvider() {
     card.querySelector<HTMLElement>('.pdot')!.hidden = !savedKeys[id];
   }
 
-  fields.model.value = settings.models[provider] || DEFAULT_MODELS[provider];
+  fields.model.value = settings.models[provider] || DEFAULT_MODELS[provider] || '';
   fields.model.placeholder = DEFAULT_MODELS[provider] || '填模型名';
   fields.apiKey.value = savedKeys[provider] ? KEY_MASK : '';
-  fields.apiKey.placeholder = provider === 'anthropic' ? 'sk-ant-...' : `${spec.name} 的 API Key`;
+  fields.apiKey.placeholder = `${spec.name} 的 API Key`;
   fields.apiKey.disabled = !!spec.keyless;
 
-  // 兼容协议的都能改地址：预置的填错了或哪天变了，用户自己改一行就能救
-  $('baseURLRow').hidden = spec.kind !== 'compatible';
+  // 自定义接口可以改地址与额外请求体
+  $('baseURLRow').hidden = spec.kind !== 'custom';
   fields.baseURL.value = baseURLOf(settings);
   fields.baseURL.placeholder = spec.baseURL ?? 'https://…/v1';
+
+  $('extraBodyRow').hidden = spec.kind !== 'custom';
+  fields.extraBody.value = settings.customExtraBody || DEFAULT_EXTRA_BODY_STRING;
+  $('extraBodyNote').textContent = '额外请求体会直接合并到 API 请求中，不同接口支持的字段可能不同。';
+  delete $('extraBodyNote').dataset.tone;
 
   const link = $<HTMLAnchorElement>('keyLink');
   link.hidden = !spec.keyURL;
@@ -280,7 +288,7 @@ function paintProvider() {
     : `<b>${escape(spec.name)}</b> · <span>还没配置好</span>`;
 
   $('effortNote').textContent =
-    spec.kind === 'compatible'
+    spec.kind === 'custom'
       ? '以 reasoning_effort 透传；接口不认这个字段就选「不思考」'
       : settings.effort === 'off'
         ? '直接作答，延迟最低'
@@ -512,21 +520,25 @@ $('saveKey').addEventListener('click', async () => {
   const typed = fields.apiKey.value.trim();
   const key = typed === KEY_MASK ? '' : typed;
   if (!key && !spec.keyless && !savedKeys[provider]) return setKeyStatus('先粘贴一个 Key', 'bad');
-  // 只做形状检查。真正有没有效，第一次点「解释」的时候接口会告诉你。
-  if (key && provider === 'anthropic' && !key.startsWith('sk-ant-')) {
-    return setKeyStatus('这看起来不像 Anthropic 的 Key', 'bad');
-  }
 
   /**
    * 权限要在任何 await 之前要。
    *
    * Chrome 只在用户手势里放行 permissions.request()，中间夹一次 await（哪怕只是写一次
-   * 存储）手势就没了，调用直接抛异常。之前正是这个顺序错了——地址存下了、Key 也存下了，
-   * 请求却被浏览器拦在门外，而卡片上只写「连不上」，谁也查不出为什么。
+   * 存储）手势就没了，调用直接抛异常。
    */
   const baseURL = fields.baseURL.value.trim();
   const origin = originForProvider(settings, provider);
-  if (spec.kind === 'compatible') {
+  if (spec.kind === 'custom') {
+    const rawExtra = fields.extraBody.value.trim();
+    const parsed = parseAndValidateExtraBody(rawExtra);
+    if (!parsed.ok) {
+      $('extraBodyNote').textContent = parsed.error;
+      $('extraBodyNote').dataset.tone = 'bad';
+      return setKeyStatus(parsed.error, 'bad');
+    }
+    await patch({ customExtraBody: rawExtra });
+
     if (!baseURL) return setKeyStatus('先填接口地址', 'bad');
     const granted = await grantHost(baseURL);
     if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
@@ -548,6 +560,26 @@ $('saveKey').addEventListener('click', async () => {
   setKeyStatus('已保存', 'ok');
   redraw(); // 生僻词的标注策略跟着变
   void loadModels(false); // 刚配好，发起最小 HTTPS 请求拉取模型列表以验证链路
+});
+
+fields.extraBody.addEventListener('input', () => {
+  const raw = fields.extraBody.value.trim();
+  const parsed = parseAndValidateExtraBody(raw);
+  if (!parsed.ok) {
+    $('extraBodyNote').textContent = parsed.error;
+    $('extraBodyNote').dataset.tone = 'bad';
+  } else {
+    $('extraBodyNote').textContent = '额外请求体会直接合并到 API 请求中，不同接口支持的字段可能不同。';
+    delete $('extraBodyNote').dataset.tone;
+  }
+});
+
+fields.extraBody.addEventListener('change', async () => {
+  const raw = fields.extraBody.value.trim();
+  const parsed = parseAndValidateExtraBody(raw);
+  if (parsed.ok) {
+    await patch({ customExtraBody: raw });
+  }
 });
 
 $('clearKey').addEventListener('click', async () => {

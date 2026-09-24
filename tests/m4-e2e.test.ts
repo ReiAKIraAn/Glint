@@ -177,7 +177,7 @@ const mockDictEntry: DictEntry = {
 const defaultSettings: Settings = {
   ...DEFAULT_SETTINGS,
   aiEnabled: true,
-  provider: 'anthropic',
+  provider: 'openai',
 };
 
 const fakeApiKey = 'sk-ant-api03-integration-test-key-do-not-leak';

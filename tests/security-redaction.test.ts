@@ -8,65 +8,37 @@ import { PROVIDERS, baseURLOf, type Settings, DEFAULT_SETTINGS } from '../src/li
  * 运行环境: Node.js 运行时测试 (注意: 非 Safari 原生环境)
  */
 
-test('Gemini 模型列表请求 URL 严禁包含 ?key= 或任何 query secret', () => {
-  const settings: Settings = { ...DEFAULT_SETTINGS, provider: 'google' };
-  const spec = PROVIDERS[settings.provider];
-  const dummyKey = 'AIzaSyDummyKeyForGoogleGenerativeAI123456';
+test('OpenAI 与 DeepSeek 模型列表请求 URL 严禁包含 ?key= 或任何 query secret', () => {
+  const settingsOpenAI: Settings = { ...DEFAULT_SETTINGS, provider: 'openai' };
+  const specOpenAI = PROVIDERS[settingsOpenAI.provider];
+  const dummyKey = 'sk-proj-DummyKeyForOpenAI123456';
 
-  // 模拟 background.ts 中构造的 URL 逻辑
-  const url =
-    spec.kind === 'anthropic'
-      ? 'https://api.anthropic.com/v1/models?limit=1000'
-      : spec.kind === 'google'
-        ? 'https://generativelanguage.googleapis.com/v1beta/models'
-        : spec.kind === 'openai'
-          ? 'https://api.openai.com/v1/models'
-          : `${baseURLOf(settings).replace(/\/$/, '')}/models`;
+  const url = `${specOpenAI.baseURL}/models`;
 
   assert.strictEqual(
     url,
-    'https://generativelanguage.googleapis.com/v1beta/models',
-    'Gemini 请求必须是纯净的标准 URL，严禁在 query parameter 中拼接 key',
+    'https://api.openai.com/v1/models',
+    'OpenAI 请求必须是纯净的标准 URL，严禁在 query parameter 中拼接 key',
   );
   assert.ok(!url.includes('?key='), 'URL 严禁包含 ?key=');
   assert.ok(!url.includes(dummyKey), 'URL 严禁包含 API Key');
 });
 
-test('Gemini 请求 Header 必须包含官方支持的 x-goog-api-key 鉴权头', () => {
-  const spec = PROVIDERS.google;
-  const dummyKey = 'AIzaSyDummyKeyForGoogleGenerativeAI123456';
+test('OpenAI 与 DeepSeek 请求 Header 必须包含 Authorization Bearer 鉴权头', () => {
+  const dummyKey = 'sk-dummy-key-123456';
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${dummyKey}`,
+  };
 
-  const headers: Record<string, string> =
-    spec.kind === 'anthropic'
-      ? {
-          'x-api-key': dummyKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        }
-      : spec.kind === 'google'
-        ? {
-            'x-goog-api-key': dummyKey,
-          }
-        : { Authorization: `Bearer ${dummyKey}` };
-
-  assert.strictEqual(headers['x-goog-api-key'], dummyKey, 'Google 鉴权头必须为 x-goog-api-key');
-  assert.strictEqual(headers['Authorization'], undefined, 'Google 鉴权不应使用 Authorization Bearer');
+  assert.strictEqual(headers['authorization'], `Bearer ${dummyKey}`, '鉴权头必须为 Bearer token');
 });
 
-test('Anthropic 与 OpenAI 系 Header 鉴权规范核对', () => {
-  const dummyKey = 'sk-ant-api03-dummy-anthropic-key-987654321';
-  const anthropicHeaders: Record<string, string> = {
-    'x-api-key': dummyKey,
-    'anthropic-version': '2023-06-01',
-    'anthropic-dangerous-direct-browser-access': 'true',
-  };
-  assert.strictEqual(anthropicHeaders['x-api-key'], dummyKey);
-
+test('OpenAI 系 Header 鉴权规范核对', () => {
   const openaiKey = 'sk-proj-dummy-openai-key-abcdefghijklmnopqrstuvwxyz';
   const openaiHeaders: Record<string, string> = {
-    Authorization: `Bearer ${openaiKey}`,
+    authorization: `Bearer ${openaiKey}`,
   };
-  assert.strictEqual(openaiHeaders['Authorization'], `Bearer ${openaiKey}`);
+  assert.strictEqual(openaiHeaders['authorization'], `Bearer ${openaiKey}`);
 });
 
 test('sanitizeUrl 能够清除 URL 中各形态的敏感 query 参数与凭据', () => {

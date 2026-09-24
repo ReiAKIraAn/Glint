@@ -283,7 +283,7 @@ test('CACHE-11: abort does not write - 用户主动取消的请求绝不写入�
   const port = new MockPort();
   let putCalled = false;
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-key-12345',
     streamFn: async (_settings, _key, _payload, signal, onChunk) => {
       onChunk('Partial explanation...');
@@ -318,7 +318,7 @@ test('CACHE-12: provider error does not write - 服务商 HTTP 报错绝不写�
   const port = new MockPort();
   let putCalled = false;
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-key-12345',
     streamFn: async () => {
       throw new ProviderHttpError(500, 'Internal Server Error');
@@ -347,7 +347,7 @@ test('CACHE-13: timeout does not write - 超时错误绝不写入缓存', async 
   const port = new MockPort();
   let putCalled = false;
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-key-12345',
     streamFn: async () => {
       throw new ProviderTimeoutError('Request timed out');
@@ -374,7 +374,7 @@ test('CACHE-14: partial stream does not write - 途中断开或报错的部分�
   const port = new MockPort();
   let putCalled = false;
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-key-12345',
     streamFn: async (_settings, _key, _payload, _signal, onChunk) => {
       onChunk('This is incomplete');
@@ -402,7 +402,7 @@ test('CACHE-15: empty explanation does not write - 空文本释义绝不写入�
   const port = new MockPort();
   let putCalled = false;
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-key-12345',
     streamFn: async (_settings, _key, _payload, _signal, onChunk) => {
       onChunk('   \n  \t  '); // 纯空白
@@ -428,7 +428,7 @@ test('CACHE-15: empty explanation does not write - 空文本释义绝不写入�
 test('CACHE-16: storage write failure does not break completed AI - 存储写入失败不影响 AI_DONE 投递与用户体验', async () => {
   const port = new MockPort();
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-key-12345',
     streamFn: async (_settings, _key, _payload, _signal, onChunk) => {
       onChunk('Generated valid explanation');
@@ -459,7 +459,7 @@ test('CACHE-17: forbidden fields absent - 存储载荷绝不包含 sentence, con
   const port = new MockPort();
 
   handleAiPortConnection(port, {
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'anthropic' }),
+    getSettings: async () => ({ ...DEFAULT_SETTINGS, aiEnabled: true, provider: 'openai' }),
     getApiKey: async () => 'sk-ant-test-secret-key-999',
     streamFn: async (_settings, _key, _payload, _signal, onChunk) => {
       onChunk('Public lexical definition of word.');

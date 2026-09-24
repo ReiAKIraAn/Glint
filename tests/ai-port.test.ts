@@ -76,7 +76,7 @@ class MockPort implements PortLike {
 const defaultSettings: Settings = {
   ...DEFAULT_SETTINGS,
   aiEnabled: true,
-  provider: 'anthropic',
+  provider: 'openai',
 };
 
 const fakeApiKey = 'TEST_ANTHROPIC_KEY_DO_NOT_LOG';

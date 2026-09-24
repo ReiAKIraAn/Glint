@@ -63,4 +63,33 @@ test('老字段本身不会漏进结果里', () => {
 test('老版本的 baseURL 搬进「自定义接口」那一格', () => {
   const out = withDefaults({ baseURL: 'https://old.example.com/v1' });
   assert.equal(out.baseURLs.compatible, 'https://old.example.com/v1');
+  assert.equal(out.baseURLs.custom, 'https://old.example.com/v1');
+});
+
+test('历史 provider: anthropic 自动安全降级至默认 provider: openai', () => {
+  const out = withDefaults({ provider: 'anthropic' as any });
+  assert.equal(out.provider, 'openai');
+});
+
+test('历史 provider: compatible 自动迁移至 custom', () => {
+  const out = withDefaults({ provider: 'compatible' as any });
+  assert.equal(out.provider, 'custom');
+});
+
+test('支持当前合法 Provider: openai, deepseek, custom', () => {
+  assert.equal(withDefaults({ provider: 'openai' }).provider, 'openai');
+  assert.equal(withDefaults({ provider: 'deepseek' }).provider, 'deepseek');
+  assert.equal(withDefaults({ provider: 'custom' }).provider, 'custom');
+});
+
+test('缺少 customExtraBody 的旧配置自动补充默认 thinking_mode: false', () => {
+  const out = withDefaults({ level: 2 });
+  assert.equal(typeof out.customExtraBody, 'string');
+  assert.deepEqual(JSON.parse(out.customExtraBody!), { thinking_mode: false });
+});
+
+test('用户已存的 customExtraBody 不被默认值覆盖', () => {
+  const customBody = JSON.stringify({ thinking_mode: true, temperature: 0.7 });
+  const out = withDefaults({ customExtraBody: customBody });
+  assert.equal(out.customExtraBody, customBody);
 });

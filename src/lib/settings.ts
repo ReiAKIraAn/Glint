@@ -2,7 +2,9 @@ import { storage } from '#imports';
 import {
   DEFAULT_MODELS,
   DEFAULT_SETTINGS,
+  PROVIDERS,
   type Explained,
+  type Provider,
   type Settings,
 } from './types';
 
@@ -28,17 +30,45 @@ export const settingsStore = storage.defineItem<Settings>('local:settings', {
 export function withDefaults(
   stored: Partial<Settings> & { model?: string; baseURL?: string },
 ): Settings {
-  // model / baseURL 是老版本的字段，搬进新结构之后就不再往下传，否则用户改了
-  // Anthropic 的模型名，下次读取又会被那个旧值盖回去。
+  // model / baseURL 是老版本的字段，搬进新结构之后就不再往下传
   const { model: legacyModel, baseURL: legacyBaseURL, ...rest } = stored;
+
+  let provider = rest.provider;
+  if ((provider as string) === 'compatible') {
+    provider = 'custom';
+  }
+  if (!provider || (provider as string) === 'anthropic' || !PROVIDERS[provider]) {
+    provider = DEFAULT_SETTINGS.provider;
+  }
+
   const settings: Settings = {
     ...DEFAULT_SETTINGS,
     ...rest,
-    models: { ...DEFAULT_MODELS, ...rest.models },
+    provider,
+    models: { ...DEFAULT_MODELS, ...rest.models } as any,
     baseURLs: { ...rest.baseURLs },
+    customExtraBody:
+      rest.customExtraBody !== undefined
+        ? rest.customExtraBody
+        : DEFAULT_SETTINGS.customExtraBody,
   };
-  if (legacyModel && !rest.models?.anthropic) settings.models.anthropic = legacyModel;
-  if (legacyBaseURL && !settings.baseURLs.compatible) settings.baseURLs.compatible = legacyBaseURL;
+
+  if (legacyModel && !(rest.models as any)?.anthropic) {
+    (settings.models as any).anthropic = legacyModel;
+  }
+
+  if (legacyBaseURL) {
+    if (!settings.baseURLs.custom) settings.baseURLs.custom = legacyBaseURL;
+    if (!(settings.baseURLs as any).compatible) (settings.baseURLs as any).compatible = legacyBaseURL;
+  }
+
+  if ((stored.baseURLs as any)?.compatible && !settings.baseURLs.custom) {
+    settings.baseURLs.custom = (stored.baseURLs as any).compatible;
+  }
+  if (stored.baseURLs?.custom && !(settings.baseURLs as any)?.compatible) {
+    (settings.baseURLs as any).compatible = stored.baseURLs.custom;
+  }
+
   return settings;
 }
 

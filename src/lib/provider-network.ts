@@ -20,9 +20,14 @@ import type {
   ProviderStreamPayload,
 } from './providers/types';
 
+import {
+  parseAndValidateExtraBody,
+} from './providers/extra-body';
+
 export * from './providers/errors';
 export * from './providers/types';
 export * from './providers/registry';
+export * from './providers/extra-body';
 
 export interface FetchOptions {
   fetchFn?: typeof fetch;
@@ -90,10 +95,19 @@ export async function fetchProviderStream(
     throw new ProviderAbortError('用户取消了请求');
   }
 
+  let extraBody: Record<string, unknown> | undefined;
+  if (settings.provider === 'custom' && settings.customExtraBody) {
+    const parsed = parseAndValidateExtraBody(settings.customExtraBody);
+    if (parsed.ok) {
+      extraBody = parsed.data;
+    }
+  }
+
   const ctx: ProviderStreamContext = {
     model,
     apiKey,
     baseURL,
+    extraBody,
     signal: signal ?? new AbortController().signal,
     onChunk,
     options: {

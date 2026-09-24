@@ -1,13 +1,18 @@
 import type { Provider } from '../types';
-import { anthropicAdapter } from './anthropic-adapter';
+import { customAdapter } from './custom-adapter';
+import { deepseekAdapter } from './deepseek-adapter';
+import { openaiAdapter } from './openai-adapter';
 import { type ProviderAdapter, UnsupportedProviderError } from './types';
 
 /**
  * 静态 Provider Adapter 注册表
+ * 仅静态注册产品当前支持的 Provider: OpenAI, DeepSeek, Custom API
  * 严格遵循编译期静态注册原则，严禁动态引入远端代码或 eval
  */
 const REGISTRY = new Map<Provider, ProviderAdapter>([
-  ['anthropic', anthropicAdapter],
+  ['openai', openaiAdapter],
+  ['deepseek', deepseekAdapter],
+  ['custom', customAdapter],
 ]);
 
 /**
