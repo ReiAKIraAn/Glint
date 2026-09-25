@@ -18,7 +18,7 @@
   - 达成 UI / Runtime / Manifest / Documentation consistency closure（用户界面、运行时、清单与文档四位一体严格对齐）。
 
 ### Known Limitations (已知边界与限制说明)
-- **External Provider 网络验证边界**: OpenAI / DeepSeek / Custom API 的真实外部网络请求在本次环境中未使用真实 API Key 完成验证（协议构建、请求头规范、流式解包与错误映射由 Mock 测试集 100% 验证）。
+- **External Provider 网络验证边界**: OpenAI / DeepSeek / Custom API 的真实外部网络请求在本次环境中未使用真实 API Key 完成验证（协议构建、请求头规范、流式解包与错误映射由自动化 Mock 测试覆盖）。
 - **DOM 扫描极端回退**: 当单批次 Mutation 超过 250 条记录时（mutation storm >250 records），仍可能触发整页回退全量扫描并产生较高计算成本。
 - **WebKit 慢流生命周期**: Safari MV3 slow stream 生命周期风险仍保留（由应用层 60s 超时兜底，坚决不引入伪造心跳 hack）。
 - **DOM 边界隔离**: 第三方网页的 Shadow DOM 与 `<iframe>` 严格保持 opaque，TreeWalker 绝不穿透网页 ShadowRoot。
