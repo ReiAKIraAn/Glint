@@ -1,310 +1,323 @@
-# M5-W11 UI Feature Surface Closure Audit
+# M5-W12 Step 1 UI Feature Surface Closure Audit
 
-> **性质**: 只读深度审计 (`src/` 生产代码 0 修改)  
-> **当前基准 Commit**: `f0ecb761fefa1222a3e8624d34b869ff7c3896e5`  
-> **长期冻结 Tag**: `v1.0.0-safari-personal` (`50bd22ea1214f9edaa8e24cd798ea4258ade2ea0`)  
-> **目标**: 完成“实际功能能力 ↔ 用户可见 UI”闭环审计，排查所有不属于当前 Safari Personal Edition 范围但在 UI、配置、文档中暴露的残留入口，形成可执行的 Step 2 清理方案。
+> **审计性质**: 只读深度闭环审计 (`src/` 生产代码 0 修改)
+> **基线 Commit**: `690e3f2dcd9cfcf65c205a2928dc899091d05b8f`
+> **分支**: `safari-personal`
+> **自动化测试基线**: `408 / 408 PASS`
+> **目标**: 完成「UI → Runtime → Manifest → Documentation」全链路一致性闭环审计，排查所有不属于当前 Safari Personal Edition 范围但在 UI、配置、Manifest 或文档中暴露的残留入口与虚假宣称，制定精确的 Step 2 清理方案。
 
 ---
 
 ## 1. Executive Summary (执行摘要)
 
-Glint Safari Personal Edition 的核心功能开发与技术基线已经确立。但在经过从上游 Chrome 版本向 Safari Personal Edition 的多轮裁剪演进后，代码库中仍残留部分“功能已被舍弃或延后、但 UI 入口依然向用户暴露”的表面（Surface）。
+在经过 M5-W11 与 M5-W11.1 的架构收敛后，Glint Safari Personal Edition 已正式确立由 **OpenAI**、**DeepSeek** 与 **自定义接口 (Custom API)** 构成的三 Provider 体系，并剥离了历史 Anthropic 运行时依赖，健全了无 Key 模式与 `customExtraBody` 机制。
 
-本次审计对全项目进行了只读排查，涵盖：
-1. **设置面板 (Options UI)**：HTML 结构、Tab、卡片、按钮、说明文案；
-2. **工具栏弹窗 (Popup UI)**：控件、开关、说明文案；
-3. **生词卡片 (Hover Vocabulary Card)**：按钮状态机、Shadow DOM 内部结构；
-4. **Manifest / Safari Extension 配置界面**：`commands` 快捷键声明；
-5. **项目文档与外部宣称**：`README.md`、`PRIVACY.md` 与相关文档。
-
-### 核心审计发现 (Core Findings)
-1. **Anki 导出残留在设置页面**: 按钮 `#exportAnki` 与提示文案 `#ankiNote` 仍存在于设置页，点击仅弹窗显示错误提示，且 `README.md` 仍宣称支持导出。
-2. **11 个未实现服务商暴露在设置面板**: 设置面板通过遍历 `PROVIDER_IDS` 渲染了 12 个服务商卡片（包括 OpenAI, Gemini, DeepSeek, Ollama 等），但底层 `ProviderRegistry` 仅实现了 `anthropic`，用户选择并保存其他服务商后触发运行时异常。
-3. **Safari 快捷键配置由 Manifest `commands` 显式引入**: `wxt.config.ts` 声明了 `Alt+G` / `Alt+Shift+G`，导致 Safari Extension 设置页向用户展示快捷键配置，且与 macOS Option 键输入机制存在平台冲突。
-4. **AI Redo 与 Markdown 未暴露假 UI**: 卡片内部在缓存命中时不展示重新生成按钮（已符合纯展示决策）；AI 文本使用原生 `textContent` 与 `pre-wrap` 渲染，无 Markdown 假开关。
+然而，对整体产品表面的全面检查发现：
+1. **Anki 假 UI 残留**: Options 设置页中仍然保留 `#exportAnki` 按钮与 `#ankiNote` 提示段落，点击后弹出“暂不支持导出到 Anki”的报错提示，同时 `README.md` 仍在宣称支持 Anki 导出；
+2. **Shortcut 平台冲突与文档失效**: Manifest 声明了 `commands: Alt+G / Alt+Shift+G`，导致 Safari 设置中展示快捷键配置，但在 macOS 下 `Alt+G` 对应 `Option+G`（在输入框中会输出特殊符号 `©`），且 `README.md` 错误地指导用户在不存在的 `chrome://extensions/shortcuts` 中改键；
+3. **文档显著陈旧滞后**:
+   - `README.md` 仍宣称支持 Anthropic、Gemini、Kimi、Ollama 等 11 家服务商，宣称支持 Anki 导出，并提供 Chrome 专属路径描述；
+   - `PRIVACY.md` 宣称已生成的释义会“连同当时那句原文”持久化存储（实际上出于隐私保护，`local:explanations` 仅存 `word`, `explanation`, `updatedAt`，严禁存入原句）；
+4. **Options 脚本死代码残留**: [src/entrypoints/options/main.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/main.ts) 中仍静态导入了废弃的 `anthropicIcon`、`geminiIcon`、`ollamaIcon`，未在 UI 中展示但占据模块作用域；
+5. **正常收敛能力验证**: AI Redo（无假 UI，仅网络失败时允许重试）、Markdown（原生纯文本流式追加，无伪造渲染开关）、Shadow DOM 与 iframe（严格边界隔离，无虚假穿透宣称）。
 
 ---
 
-## 2. Current Product Principles & Baseline (当前产品原则与基线)
+## 2. 当前正式功能清单与状态基线
 
-### 2.1 实际已实现能力 (Implemented)
-- CEFR 生词分词与扫描（A1~C2 难度过滤、词形还原、代码/专有名词过滤）
-- 四种标注样式：`dotted` (虚线), `underline` (下划线), `tint` (底色), `color` (文字变色: Light `#D9622B`, Dark `#FF9A5C`)
-- 熟词消词标记与过滤（“✓ 认识”全站消词）
-- 220ms 悬停 Shadow DOM 生词卡片与 `caretPositionFromPoint` 光标反查
-- 本地离线词典查询（音标、考试标签、中文释义）
-- 原生 Web Speech API 离线发音（严格筛选 `localService === true`）
-- 单一服务商 BYOK: Anthropic（Request Header 鉴权、密钥不出前台）
-- SSE 增量推流打字机（rAF 批量合并渲染、纯 `textContent` 安全防 XSS）
-- AI 请求用户主动取消（UI 取消按钮 + Port `AI_ABORT` + AbortController 中止）
-- AI 释义本地持久化缓存（2,000 条 LRU，同词二次秒显，零敏感上下文存盘）
-- 动态网页增量扫描（嵌套子树包含裁剪、零词增量防护、250 突变全量回退兜底）
-- Safari 单域动态权限管理（最小权限原则，用户手势发起与回收）
-- 工具栏 Popup 弹窗（实时生词计数、总开关、当前站点黑名单切换）
+基于实际生产代码、Provider 适配器、Options 设置页、Popup 弹窗与 Manifest，当前正式功能清单确立如下：
 
-### 2.2 有意设计边界 (Intentionally Bounded)
-- **第三方 Shadow DOM**: 保持 opaque，TreeWalker 绝不穿透，保障 Web Components 封装。
-- **iframe 浏览上下文**: 保持 opaque，`window.top !== window.self` 与 `OPAQUE_TAGS` 阻断，不跨 Frame 扫描。
-
-### 2.3 明确排除能力 (Intentionally Excluded)
-- **Anki 笔记导出**: 用户决议 D3=NO，保护隐私绝不持久化网页原句，彻底禁用导出。
-
-### 2.4 当前未实现 / 延后特性 (Deferred / Not Implemented)
-- **AI 缓存重新生成 (Redo)**: 缓存命中后仅展示释义，无直接强制重新生成入口。
-- **第二 AI Provider**: 架构已通过 `ProviderAdapter` 解耦，但当前未实现 Anthropic 之外的第二个 Provider。
-- **Markdown / Rich Text AI 排版**: 保持原生 plain text 流式追加，不引入 Markdown 解析库。
-
-### 2.5 平台限制 (Platform Limitations)
-- macOS Option 键快捷键冲突。
-- Safari WebExtension `browser.commands` 机制在 macOS Safari 上的支持与配置行为。
+| 功能模块 | 对应 UI 表面 | 运行时实现 (Runtime) | Manifest 依赖 | 文档宣称现状 | 正式状态 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **CEFR 生词扫描** | Popup 开关 / Options 水平滑块 | [src/lib/scanner.ts](file:///Users/ada/Downloads/glint-main/src/lib/scanner.ts) (A1~C2 难度过滤) | `<all_urls>` | `README.md` 第 7 行 | **SUPPORTED** |
+| **四种标注样式** | Options 下拉框 (`style`) | [src/lib/highlight.ts](file:///Users/ada/Downloads/glint-main/src/lib/highlight.ts) (`dotted`, `underline`, `tint`, `color`) | 无 | 待补 `color` 描述 | **SUPPORTED** |
+| **熟词消词过滤** | 卡片“✓ 认识”按钮 / Options 清单 | [src/lib/scanner.ts](file:///Users/ada/Downloads/glint-main/src/lib/scanner.ts) (`knownWordsStore`) | `storage` | `README.md` 第 10 行 | **SUPPORTED** |
+| **本地离线词典** | 悬浮卡片音标 / 中文释义 | [src/lib/dict.ts](file:///Users/ada/Downloads/glint-main/src/lib/dict.ts) (`dict.json` 3.76MB) | 无 | `README.md` 第 9 行 | **SUPPORTED** |
+| **原生离线 TTS** | 卡片小喇叭朗读按钮 | [src/lib/tts.ts](file:///Users/ada/Downloads/glint-main/src/lib/tts.ts) (Web Speech API, `localService`) | 无 | `README.md` 第 9 行 | **SUPPORTED** |
+| **OpenAI 释义** | Options 服务商卡片 / Key / 模型 | [src/lib/providers/openai-adapter.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/openai-adapter.ts) (`gpt-4o-mini`) | `optional_host_permissions` | 混在 11 家列表中 | **SUPPORTED** |
+| **DeepSeek 释义** | Options 服务商卡片 / Key / 模型 | [src/lib/providers/deepseek-adapter.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/deepseek-adapter.ts) (`deepseek-chat`) | `optional_host_permissions` | 混在 11 家列表中 | **SUPPORTED** |
+| **自定义接口** | Options 卡片 / 地址 / 额外请求体 | [src/lib/providers/custom-adapter.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/custom-adapter.ts) (免 Key/带 Key, SSE) | 动态用户手势申请 | 简单提及 | **SUPPORTED** |
+| **AI 释义缓存** | 悬停卡片秒显 / Options 清空 | [src/lib/explanation-cache.ts](file:///Users/ada/Downloads/glint-main/src/lib/explanation-cache.ts) (2000条 LRU) | `storage` | `PRIVACY.md` 描述有偏差 | **SUPPORTED** |
+| **排除站点** | Popup 当前站开关 / Options 列表 | [src/lib/types.ts](file:///Users/ada/Downloads/glint-main/src/lib/types.ts) (`siteDisabled`) | `storage` | `README.md` 第 11 行 | **SUPPORTED** |
+| **配置数据备份** | Options 备份/恢复 JSON 按钮 | [src/entrypoints/options/main.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/main.ts) (`exportData`/`importData`) | 无 | `README.md` 第 10 行 | **SUPPORTED** |
 
 ---
 
-## 3. Dedicated Deep Dives (专项深度剖析)
+## 3. 核心领域逐项审计结论
 
-### 3.1 Deep Dive 1: Safari Extension Shortcut & Manifest `commands`
+### 3.1 审计 Anki (Anki TSV Export)
 
-#### 来源追溯
-- **声明源头**: [`wxt.config.ts`](file:///Users/ada/Downloads/glint-main/wxt.config.ts#L60-L69)
-  ```ts
-  commands: {
-    'next-word': {
-      suggested_key: { default: 'Alt+G' },
-      description: '跳到下一个标注的词',
-    },
-    'prev-word': {
-      suggested_key: { default: 'Alt+Shift+G' },
-      description: '跳到上一个标注的词',
-    },
-  }
-  ```
-- **构建输出**: `.output/safari-mv3/manifest.json` 中包含 `"commands": { "next-word": ..., "prev-word": ... }`。
-- **浏览器表现**: Safari Technology Preview 在 **Settings → Extensions** 面板中检测到 manifest 的 `commands` 字段，因此自动为 Glint 生成快捷键配置界面。
-- **事件监听链路**:
-  1. `src/entrypoints/background.ts` 第 42-46 行监听 `browser.commands?.onCommand.addListener`；
-  2. 向当前活跃标签页分发 `{ kind: 'nav:step', delta }`；
-  3. `src/entrypoints/content.ts` 接收该消息并调用 `nav?.step(message.delta)`；
-  4. `src/lib/keynav.ts` 中的 `createWordNav` 计算光标位置，调用 `centerOn` 滚动视口并调用 `hover.pin(token)`。
+#### 代码事实检查
+1. **Options UI 表面**:
+   - [src/entrypoints/options/index.html](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/index.html) 第 229 行存在按钮 `<button id="exportAnki">导出到 Anki</button>`；
+   - 第 232-234 行存在引导段落 `<p class="note" id="ankiNote">存成一个文本文件，在 Anki 里点 Import File 选中它就行...</p>`。
+2. **事件监听与反馈**:
+   - [src/entrypoints/options/main.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/main.ts) 第 785 行：
+     ```ts
+     $('exportAnki').addEventListener('click', async () => {
+       setAnkiNote('Safari Personal Edition 暂不支持导出到 Anki。', 'bad');
+     });
+     ```
+   - 用户点击该按钮不会执行任何导出，而是直接在下方抛出红色报错，构成典型的“破损/虚假 UI”。
+3. **死代码与孤立依赖**:
+   - `options/main.ts` 第 48 行静态引入了 `import { toAnkiTSV, type AnkiRow } from '@/lib/anki'`，但在整个文件中 `toAnkiTSV` 从未被调用。
+   - [src/lib/anki.ts](file:///Users/ada/Downloads/glint-main/src/lib/anki.ts) 及其测试 [tests/anki.test.ts](file:///Users/ada/Downloads/glint-main/tests/anki.test.ts) 完全脱离了当前运行时数据流。
+4. **外部文档宣称**:
+   - `README.md` 第 10 行明确承诺：“已生成的释义可以导出到 Anki”。
 
-#### 存在的问题与冲突
-1. **平台按键冲突**: 在 macOS 系统中，`Alt+G` 映射为 `Option+G`。在绝大多数文本输入区域（输入框、编辑器、终端），按下 `Option+G` 会直接输入特殊符号 `©`，无法被浏览器扩展拦截；在页面上按也极易与系统级输入法冲突。
-2. **README 误导**: `README.md` 写明 `可在 chrome://extensions/shortcuts 里改键`，这在 macOS Safari 环境下完全不存在。
-3. **定位与产品范围**: Safari Personal Edition 核心场景是沉浸式鼠标阅读。键盘遍历生词并未在 Safari TP 中做完整跨页面适配。
-
-#### 推荐方案
-- **评估决议**: 建议将 `commands` 移出 Safari manifest，或在 Step 2 中正式清理。若移出，Safari Extension 设置页将不再显示快捷键配置入口；`content.ts` 中针对已钉住卡片的 `Escape` 键盘关闭逻辑（原生 DOM 事件）不受影响。
+#### 审计结论与处置建议
+- **定性**: `EXCLUDED (FALSE UI)`。架构决策 D3=NO 已经明确不持久化网页原句，彻底排除 Anki 导出。当前 UI 入口为历史遗留的假入口。
+- **Action**: **`REMOVE`**。
+  - 从 `options/index.html` 中物理删除 `#exportAnki` 按钮与 `#ankiNote` 提示；
+  - 从 `options/main.ts` 中删除点击监听、`setAnkiNote` 函数及无用的 `toAnkiTSV` import；
+  - 修正 `README.md`，删除对 Anki 导出的功能承诺；
+  - `src/lib/anki.ts` 与 `tests/anki.test.ts` 可保留作为孤立工具单测，或在后续阶段归档。
 
 ---
 
-### 3.2 Deep Dive 2: Anki Export Full Lifecycle Trace
+### 3.2 审计 Shortcut (Safari Extension Commands)
 
-#### 现状全链路追踪
+#### 代码事实检查
+1. **Manifest 声明**:
+   - [wxt.config.ts](file:///Users/ada/Downloads/glint-main/wxt.config.ts) 第 60-69 行及打包产物 [.output/safari-mv3/manifest.json](file:///Users/ada/Downloads/glint-main/.output/safari-mv3/manifest.json) 声明了：
+     ```json
+     "commands": {
+       "next-word": { "suggested_key": { "default": "Alt+G" }, "description": "跳到下一个标注的词" },
+       "prev-word": { "suggested_key": { "default": "Alt+Shift+G" }, "description": "跳到上一个标注的词" }
+     }
+     ```
+2. **运行时实现完整性**:
+   - [src/entrypoints/background.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/background.ts) 第 40-44 行注册了 `browser.commands?.onCommand.addListener`；
+   - 收到命令后向当前 tab 发送 `{ kind: 'nav:step', delta }` 消息；
+   - [src/entrypoints/content.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/content.ts) 监听该消息并触发 `nav?.step(message.delta)`；
+   - [src/lib/keynav.ts](file:///Users/ada/Downloads/glint-main/src/lib/keynav.ts) 实现了在视口中遍历高亮 Token 并展开悬浮卡片的逻辑，同时监听原生 `Escape` 键关闭钉住卡片。
+3. **平台冲突与体验裂痕**:
+   - 在 macOS 系统中，`Alt+G` 对应硬件按键 `Option+G`。在大部分网页输入框或表单中，按下 `Option+G` 会直接输入版权符号 `©`，导致扩展快捷键无法被稳定拦截；
+   - Safari 的 **Settings → Extensions** 面板检测到 `commands` 字段会自动渲染快捷键配置入口；
+   - `README.md` 第 35 行写道：“可以在 `chrome://extensions/shortcuts` 里改键”，在 Safari 上属于严重误导信息。
+
+#### 审计结论与处置建议
+- **定性**: `SUPPORTED RUNTIME / FLAWED PLATFORM UX`。代码并非假实现（底层完整可跑），但在 macOS/Safari 上存在原生 `Option+G` 按键冲突且无快捷改键页面。
+- **Action**: **`REMOVE (from Manifest)`** 或 **`DOCUMENT`**。
+  - **推荐方案 (RECOMMENDED)**：从 Safari 构建的 Manifest 中移除 `commands` 声明，彻底消除 Safari Extension 系统设置页中的失效配置展示；保留 `Escape` 键的原生 DOM 键盘关闭能力。
+  - **文档修正**：彻底删除 `README.md` 中有关 `chrome://extensions/shortcuts` 的 Chrome 专属描述。
+
+---
+
+### 3.3 审计 Provider UI 与注册一致性
+
+#### 代码事实检查
+1. **Options 设置页 UI**:
+   - [src/entrypoints/options/main.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/main.ts) 第 216 行通过 `PROVIDER_IDS` 动态渲染 Provider 卡片；
+   - 当前 `PROVIDER_IDS` 严格受控于 [src/lib/types.ts](file:///Users/ada/Downloads/glint-main/src/lib/types.ts)：`['openai', 'deepseek', 'custom']`；
+   - UI 表面**仅且仅有** 3 个卡片：OpenAI、DeepSeek、自定义接口，完全无未实现服务商假入口。
+2. **Provider Registry 对齐**:
+   - [src/lib/providers/registry.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/registry.ts) 内部仅注册了 `openai`、`deepseek`、`custom`；
+   - `UI Provider list === Provider Registry === Supported Runtime Providers`，三者完全闭环。
+3. **死代码与图标残留**:
+   - `options/main.ts` 头部仍有：
+     ```ts
+     import anthropicIcon from '@lobehub/icons-static-svg/icons/anthropic.svg?raw';
+     import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg?raw';
+     import ollamaIcon from '@lobehub/icons-static-svg/icons/ollama.svg?raw';
+     ```
+     并在 `const ICONS` 表中定义。这 3 个图标完全不会被索引，属于死代码。
+4. **历史迁移兼容代码**:
+   - [src/lib/settings.ts](file:///Users/ada/Downloads/glint-main/src/lib/settings.ts) 中的 `withDefaults`：
+     - 将历史存储中的 `provider: 'anthropic'` 自动降级回退为 `'openai'`;
+     - 将历史存储中的 `provider: 'compatible'` 平滑迁移为 `'custom'`;
+     - 迁移历史单一 `model` 字段和旧 `baseURL`。
+
+#### 审计结论与处置建议
+- **定性**:
+  - 当前 3 个 Provider UI：`SUPPORTED` (`KEEP`)；
+  - `anthropicIcon` / `geminiIcon` / `ollamaIcon`：`DEAD CODE` (`REMOVE`)；
+  - `withDefaults` 历史降级逻辑：`MIGRATION-ONLY` (`KEEP`)，绝不可误删。
+
+---
+
+### 3.4 审计 AI Redo / Regenerate
+
+#### 代码事实检查
+1. **卡片 UI 表面**:
+   - 检查 [src/lib/card.ts](file:///Users/ada/Downloads/glint-main/src/lib/card.ts)：当单词已存在缓存时，卡片直接展现缓存文本，**完全没有渲染任何“重新生成”或 Redo 按钮**；
+   - 仅在网络发生超时（Timeout）、中断（Abort）或报错（Error）时，卡片展示 `aiExplainBtn.textContent = '重试 AI 解释'`。
+2. **区别界定**:
+   - 网络错误重试（Error Retry）≠ 覆盖缓存的主动重新生成（AI Redo）。
+   - 当前卡片未给用户暴露任何无效的 AI Redo 假交互。
+
+#### 审计结论与处置建议
+- **定性**: `INTENTIONALLY OMITTED / DEFERRED`。
+- **Action**: **`DOCUMENT`**。保持当前卡片极简状态机，不在 UI 上添加多余控件。
+
+---
+
+### 3.5 审计 Markdown / Rich Text
+
+#### 代码事实检查
+1. **渲染实现**:
+   - 所有 AI 流式增量均通过 Shadow DOM 原生 `chunkEl.textContent += delta` 写入；
+   - 容器样式采用 CSS `white-space: pre-wrap` 保留模型生成的换行与空行；
+   - 全项目 0 第三方 Markdown 解析依赖（零 `marked`, `remark`），从根源杜绝 XSS 逃逸和 WebKit 高频流式重排卡顿。
+2. **设置项与 UI 排查**:
+   - `options/index.html` 与 `popup/index.html` 均无 Markdown 切换开关，无 HTML 渲染选项。
+
+#### 审计结论与处置建议
+- **定性**: `INTENTIONALLY SIMPLIFIED`。
+- **Action**: **`DOCUMENT`**。保持极简纯文本设计。
+
+---
+
+### 3.6 审计 Shadow DOM / iframe 边界
+
+#### 代码事实检查
+1. **扫描器边界**:
+   - [src/lib/scanner.ts](file:///Users/ada/Downloads/glint-main/src/lib/scanner.ts) 中：
+     - 第三方 Web Components / ShadowRoot 保持 Opaque（TreeWalker 绝不穿透，扩展自身卡片独立隔离在扩展 Shadow DOM 中）；
+     - `iframe` 标签被列入 `OPAQUE_TAGS`，`window.top !== window.self` 阻断跨 frame 扫描。
+2. **UI 与文档一致性**:
+   - `options` 与 `popup` 均无“穿透 Shadow DOM”或“扫描 iframe”的虚假开关或说明。
+   - `README.md` 与 `PRIVACY.md` 亦无夸大宣称。
+
+#### 审计结论与处置建议
+- **定性**: `INTENTIONALLY BOUNDED`。
+- **Action**: **`DOCUMENT`**。
+
+---
+
+### 3.7 审计 Documentation (README & PRIVACY 冲突分析)
+
+#### 1. README.md 冲突项清单
+| 行号 | 现有文档描述 | 实际代码实现 | 冲突性质 | 修复方案 |
+| :--- | :--- | :--- | :--- | :--- |
+| **L10** | `已生成的释义可以导出到 Anki` | Anki 导出已被架构决议排除，点击为报错文案 | **功能已废弃 (破损承诺)** | 删除该句，仅保留“设置和词表可以备份成 JSON” |
+| **L19-23** | 列出 Anthropic、OpenAI、Gemini、DeepSeek、Kimi、Ollama 等 11 家服务商 | 仅支持 OpenAI、DeepSeek、自定义接口 | **服务商列表严重夸大** | 修改为三家正式服务商说明 |
+| **L27-35** | `可以在 chrome://extensions/shortcuts 里改键` | Safari 没有该 Chrome 设置页面，macOS 上 Option+G 冲突 | **平台描述错误** | 移除 Chrome 快捷键指引 |
+| **L53** | `pnpm build` 打包到 `.output/chrome-mv3`，可在 `chrome://extensions` 加载 | Safari 版命令为 `pnpm build:safari`，输出到 `.output/safari-mv3` | **构建指引不匹配** | 更新为 Safari MV3 构建与运行指引 |
+
+#### 2. PRIVACY.md 冲突项清单
+| 行号 | 现有文档描述 | 实际代码实现 | 冲突性质 | 修复方案 |
+| :--- | :--- | :--- | :--- | :--- |
+| **L28** | `已生成的释义: AI 释义的结果，连同当时那句原文` | [src/lib/explanation-cache.ts](file:///Users/ada/Downloads/glint-main/src/lib/explanation-cache.ts) 严格只存储 `word`, `explanation`, `updatedAt`，严禁存入句子（已由单测 `CACHE-17` 保证） | **隐私保证与文档相反** (文档反向造假：代码更安全，文档写得不安全) | 修正为“仅存储生词原型及释义文本，绝不存储任何网页原文句子” |
+| **L51** | 第三方服务商列表包含 Anthropic、Google、Kimi、Groq 等 | 仅支持 OpenAI、DeepSeek 与自定义接口 | **第三方名单陈旧** | 修正为当前支持的服务商清单 |
+| **L80** | `通过 Chrome 应用商店条目页上的开发者邮箱联系` | 个人 Safari 专用版 | **分发渠道不匹配** | 修正为 GitHub 仓库 Issue/Discussions |
+
+---
+
+## 4. UI Feature Surface Matrix (全要素闭环矩阵)
+
+| 功能特性 (Feature) | UI Surface | Runtime Implementation | Manifest Dependency | Documentation | 判定状态 (Status) | 建议动作 (Action) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **OpenAI Provider** | Options 卡片 / Key / 模型 | [src/lib/providers/openai-adapter.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/openai-adapter.ts) | `optional_host_permissions` | README / PRIVACY (需更新) | **SUPPORTED** | **KEEP** |
+| **DeepSeek Provider** | Options 卡片 / Key / 模型 | [src/lib/providers/deepseek-adapter.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/deepseek-adapter.ts) | `optional_host_permissions` | README / PRIVACY (需更新) | **SUPPORTED** | **KEEP** |
+| **Custom API Provider** | Options 卡片 / 地址 / 额外请求体 | [src/lib/providers/custom-adapter.ts](file:///Users/ada/Downloads/glint-main/src/lib/providers/custom-adapter.ts) | 动态用户手势申请 | README (需明确) | **SUPPORTED** | **KEEP** |
+| **Anthropic Provider** | 无 (仅 main.ts 有未用图标) | 已彻底删除 | 无 | README / PRIVACY 仍宣称 | **REMOVED** | **REMOVE (Docs & Icons)** |
+| **其他历史 Provider** | 无 (Gemini/Ollama 图标残留) | 仅 registry 报错与 settings 迁移 | 无 | README 仍宣称 | **EXCLUDED** | **CLEAN (Docs & Icons)** |
+| **Settings 迁移兼容** | 无 (用户无感) | `withDefaults` / `migrateLegacyKey` | 无 | 无 | **MIGRATION-ONLY** | **KEEP** |
+| **Anki 笔记导出** | Options `#exportAnki` / `#ankiNote` | 无有效实现 (报错桩函数) | 无 | README 仍在宣称 | **EXCLUDED** | **REMOVE (UI & Docs)** |
+| **Safari 扩展快捷键** | Safari 系统扩展设置偏好页 | background `onCommand` + content `keynav` | `manifest.commands` (`Alt+G`) | README (宣称 Chrome 路径) | **FLAWED UX** | **REMOVE (Manifest & Docs)** |
+| **Escape 键关闭卡片** | 原生键盘交互 | [src/lib/keynav.ts](file:///Users/ada/Downloads/glint-main/src/lib/keynav.ts) `onKeydown` | 无 | 无 | **SUPPORTED** | **KEEP** |
+| **AI 重新生成 (Redo)** | 无假入口 (仅错误重试) | 命中缓存直接秒显 | 无 | 无 | **DEFERRED** | **DOCUMENT** |
+| **Markdown / 富文本** | 无开关 | 纯原生 `textContent` + CSS | 无 | 无 | **SIMPLIFIED** | **DOCUMENT** |
+| **Shadow DOM 穿透** | 无假开关 | Opaque 隔离 | 无 | 无 | **BOUNDED** | **DOCUMENT** |
+| **iframe 扫描穿透** | 无假开关 | `OPAQUE_TAGS` 阻断 | 无 | 无 | **BOUNDED** | **DOCUMENT** |
+
+---
+
+## 5. M5-W12 Step 2 可执行清理方案
+
+在后续 Step 2 中，将执行以下**精确、无风险**的清理工作（本 Step 1 严格不修改代码）：
+
+### 任务 1：清理 Options 页面的 Anki 假 UI
+- **目标文件**: [src/entrypoints/options/index.html](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/index.html)
+  - 删除 `#exportAnki` 按钮及 `#ankiNote` 提示文本。
+- **目标文件**: [src/entrypoints/options/main.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/main.ts)
+  - 删除 `import { toAnkiTSV, type AnkiRow } from '@/lib/anki'`；
+  - 删除 `$('exportAnki').addEventListener('click', ...)` 及 `setAnkiNote` 函数。
+
+### 任务 2：清理 Options 页面的废弃图标死代码
+- **目标文件**: [src/entrypoints/options/main.ts](file:///Users/ada/Downloads/glint-main/src/entrypoints/options/main.ts)
+  - 删除未被任何正式 Provider 引用的 `anthropicIcon`、`geminiIcon`、`ollamaIcon` import 及其在 `ICONS` 字典中的键值。
+
+### 任务 3：清理 Manifest 中的 `commands` 快捷键声明
+- **目标文件**: [wxt.config.ts](file:///Users/ada/Downloads/glint-main/wxt.config.ts)
+  - 移除 `manifest.commands` 声明，使 Safari Extension 偏好设置中不再显示带有平台冲突的 Option 快捷键；
+  - 保留 [src/lib/keynav.ts](file:///Users/ada/Downloads/glint-main/src/lib/keynav.ts) 中对 `Escape` 键的原生支持。
+
+### 任务 4：修正 README.md
+- 删除 Anki 导出宣称；
+- 更新 AI 服务商列表为 OpenAI、DeepSeek、自定义接口；
+- 移除 `chrome://extensions/shortcuts` 改键说明与 Chrome 构建指引，更新为 Safari MV3 规范。
+
+### 任务 5：修正 PRIVACY.md
+- 修正已生成释义的数据存储说明，强调“绝不存储原句”；
+- 更新第三方服务商列表为当前支持的 3 家；
+- 修正联系方式表述。
+
+---
+
+## 6. 基线健康度验证记录
+
+在当前只读审计状态下，全量验证基线执行结果如下：
+
 ```text
-UI 按钮: options/index.html (#exportAnki)
-   │
-   ├──> 文案承诺: options/index.html (#ankiNote: "存成一个文本文件，在 Anki 里点 Import File 选中它...")
-   │
-   ├──> 点击事件: options/main.ts (L747: $('exportAnki').addEventListener('click', ...))
-   │       │
-   │       └──> 虚假反馈: setAnkiNote('Safari Personal Edition 暂不支持导出到 Anki。', 'bad')
-   │
-   ├──> 死代码残留:
-   │       ├── options/main.ts (L47: import { toAnkiTSV, type AnkiRow } from '@/lib/anki')
-   │       ├── options/main.ts (L740: function loadDict() - 未被实际调用)
-   │       ├── src/lib/anki.ts (完整导出算法文件 - 生产环境孤立)
-   │       └── tests/anki.test.ts (相关测试套件 - 脱离生产数据流)
-   │
-   └──> 外部宣称: README.md (L10: "已生成的释义可以导出到 Anki")
+pnpm test -- --run               -> 408 / 408 tests PASS (0 failed, 0 skipped, ~47.7s)
+pnpm exec tsc --noEmit           -> PASS (0 errors, 0 warnings)
+pnpm exec wxt build -b safari --mv3 -> PASS (Built in 471ms, total size 5.67 MB)
+git diff --check                 -> PASS (0 formatting/whitespace errors)
 ```
 
-#### 判定与影响
-- **状态**: **INTENTIONALLY EXCLUDED (明确排除)**，但 **UI SURFACE EXPOSED (界面暴露假功能)**。
-- 用户在设置页面看到醒目的“导出到 Anki”主按钮和长段使用指引，点击后却弹出红色报错文案，构成典型的“假 UI / 破损功能”。
-- **推荐方案 (Step 2 MUST FIX)**:
-  1. 从 `options/index.html` 移除 `#exportAnki` 按钮与 `#ankiNote` 提示说明；
-  2. 从 `options/main.ts` 移除 `exportAnki` 点击事件、`setAnkiNote`、未使用的 `toAnkiTSV` 引用与 `loadDict` 悬空函数；
-  3. 从 `README.md` 移除对 Anki 导出的功能宣称；
-  4. `src/lib/anki.ts` 与 `tests/anki.test.ts` 可作为无副作用工具库保留或归档，不阻断运行。
+Manifest 关键字段核实：
+```json
+{
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [],
+  "optional_host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.deepseek.com/*"
+  ]
+}
+```
+`host_permissions = []` 保持严格为空，完全符合 Safari 最小权限安全规范。
 
 ---
 
-### 3.3 Deep Dive 3: Second Provider & Provider Selector
+## 7. Step 2 实施完成与验证记录 (Step 2 Implementation Results)
 
-#### 现状全链路追踪
-- **UI 入口**: `options/index.html` 第 141 行 `<div class="providers" id="providerCards"></div>`。
-- **渲染代码**: `options/main.ts` 第 213 行：
-  ```ts
-  function renderProviderCards() {
-    $('providerCards').innerHTML = PROVIDER_IDS.map((id) => {
-      const spec = PROVIDERS[id];
-      return `<button type="button" class="pcard" data-provider="${id}">...`;
-    }).join('');
-  }
-  ```
-- **涉及服务商**: `PROVIDER_IDS` 包含 **12 家**：
-  `anthropic`, `openai`, `google`, `openrouter`, `opencode`, `siliconflow`, `deepseek`, `moonshot`, `zhipu`, `groq`, `ollama`, `compatible`。
-- **底层注册表**: `src/lib/providers/registry.ts`：
-  ```ts
-  const REGISTRY = new Map<Provider, ProviderAdapter>([
-    ['anthropic', anthropicAdapter],
-  ]);
-  ```
-- **实际后果**:
-  用户在设置页面能够自由选择 OpenAI、Gemini、DeepSeek 等并保存 Key（还会成功触发单域权限申请弹窗）。但在阅读页面点击“✨ AI 解释”时，后台 `getProviderAdapter(provider)` 抛出 `UnsupportedProviderError: Provider "..." is not supported`，导致卡片报错并阻断。
+Step 2 已针对 Step 1 审计发现的问题全部实施完成，具体状态如下：
 
-#### 判定与影响
-- **状态**: **DEFERRED / NOT IMPLEMENTED (延后未实现)**，但 **UI SURFACE EXPOSED (界面暴露 11 个未实现项)**。
-- 这不仅是误导性 UI，而且允许用户产生无效的存储与权限申请。
-- **推荐方案 (Step 2 MUST FIX)**:
-  - 方案 A（推荐）：`renderProviderCards()` 中基于 `hasProviderAdapter(id)` 过滤，仅渲染当前已注册支持的服务商（即当前仅展示 Anthropic 卡片）。
-  - 方案 B：对未支持的服务商卡片添加 `disabled` 属性并注明“暂未适配”，阻止选中保存。
+- **Anki UI**: `REMOVED`
+  - 移除了 `src/entrypoints/options/index.html` 中的 `#exportAnki` 按钮与 `#ankiNote` 提示段落；
+  - 移除了 `src/entrypoints/options/main.ts` 中的事件监听器、`setAnkiNote` 函数、`loadDict` 悬空加载与 `toAnkiTSV` import；
+  - 移除了 `README.md` 中的 Anki 导出宣称。
+- **Safari manifest commands**: `REMOVED`
+  - 移除了 `wxt.config.ts` 中的 `manifest.commands` (`next-word`, `prev-word`) 声明；
+  - 清理了 `src/entrypoints/background.ts` 中的 `onCommand` 监听；
+  - 构建产物 `.output/safari-mv3/manifest.json` 中已完全无 `commands` 字段，彻底消除了 Safari Extension 设置中的 Option 键位冲突展示；
+  - 原生 `Escape` 键收起卡片交互完整保留在 `src/lib/keynav.ts`。
+- **Historical Provider icons**: `REMOVED`
+  - 清理了 `src/entrypoints/options/main.ts` 中废弃的 `anthropicIcon`、`geminiIcon`、`ollamaIcon` import 及其在 `ICONS` 中的死代码映射；
+  - 当前 Options UI 仅保留正式的 `openai`、`deepseek` 图标，`custom` 使用原生插头 SVG。
+- **README**: `CORRECTED`
+  - 删除了 Anki 导出宣称；
+  - 服务商名单更新为正式的 OpenAI、DeepSeek 与自定义接口（OpenAI-compatible Chat Completions 协议）；
+  - 删除了 `chrome://extensions/shortcuts` 描述，更新为 Safari 键盘交互规范；
+  - 构建命令与产物路径由 `.output/chrome-mv3` 更新为 `.output/safari-mv3`。
+- **PRIVACY**: `CORRECTED`
+  - 纠正了 AI 缓存描述，明确指出仅存储生词原型及纯文本释义，绝不持久化任何网页原文句子或上下文；
+  - 第三方服务商名单同步更新为正式 3 家；
+  - 联系方式更新为 GitHub Issue / Discussions。
+- **Migration-only Provider compatibility**: `PRESERVED`
+  - [src/lib/settings.ts](file:///Users/ada/Downloads/glint-main/src/lib/settings.ts) 中的 `withDefaults` 历史降级与迁移逻辑（`anthropic` -> `openai`，`compatible` -> `custom`）严格保留。
+- **Core Provider runtime**: `UNCHANGED`
+  - OpenAI / DeepSeek / Custom 适配器、流式解包、Extra Body JSON 校验、本地离线词库、Native TTS 等核心运行时完全未作任何修改。
 
----
-
-### 3.4 Deep Dive 4: AI Redo / Regenerate
-
-#### 检查结果
-- **卡片按钮排查**:
-  - `src/lib/card.ts` 内部仅有：
-    - `speakBtn` (发音小喇叭)
-    - `aiExplainBtn` (✨ AI 解释 / 重试 AI 解释)
-    - `aiCancelBtn` (取消)
-    - `knownBtn` (✓ 认识)
-- **缓存命中行为**:
-  - 在 `card.ts` 第 403-417 行：当 `cached` 命中时，卡片直接将缓存文本填入 `aiTextEl`，并将 `aiExplainBtn.hidden = true`，`aiCancelBtn.hidden = true`。
-  - 缓存命中状态下**完全没有渲染任何重新生成按钮**。
-- **异常重试行为**:
-  - 仅在网络出错或超时熔断时，`aiExplainBtn.textContent = '重试 AI 解释'`。这是错误重试，非覆盖缓存的 Redo。
-- **判定**: **NO UNWANTED UI (无残留假 UI)**。
-  - AI Redo 未在 UI 上产生无效按钮，现状符合预期。
-
----
-
-### 3.5 Deep Dive 5: Rich Text / Markdown
-
-#### 检查结果
-- **设置页排查**: `options/index.html` 无任何 Markdown 开关、富文本切换器或 HTML 解析选项。
-- **卡片渲染排查**: `card.ts` 纯粹采用原生 `textContent` 追加流式块，样式为 `white-space: pre-wrap; word-break: break-word;`。
-- **判定**: **NO UNWANTED UI (无残留假 UI)**。
-  - 文本流式处理纯粹且无富文本假设置。
-
----
-
-### 3.6 Deep Dive 6: Architectural Boundaries (Shadow DOM & iframe)
-
-#### 检查结果
-- **设置与交互排查**: 选项页与 Popup 零 Shadow DOM / iframe 穿透配置开关。
-- **用户心智**: 边界策略完全作为后台静默安全与封装机制运行。
-- **判定**: **DOCUMENT ONLY (纯文档说明)**。
-  - 不需要提供 UI 配置，保持现状即可。
-
----
-
-## 4. UI Feature Matrix (全景界面功能矩阵)
-
-| 功能项 (Feature) | 实际功能能力 (Actual Capability) | 用户可见入口 (UI Surface) | 当前 UI 状态 (Current Status) | 处理建议 (Recommended Action) | 优先级 |
-| :--- | :--- | :--- | :---: | :--- | :---: |
-| **CEFR 等级滑动条** | A1~C2 分级扫描与标注过滤 | Options 页面、Popup 弹窗 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **考纲静音下拉框** | 中考~考研已过考试过滤 | Options 页面、Popup 弹窗 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **备考模式下拉框** | 四六级/考研/托福/雅思/GRE 交集 | Options 页面、Popup 弹窗 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **标注样式四选一** | 虚线、下划线、底色、文字变色 | Options 页面单选卡片 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **全站标注总开关** | 一键关闭/启用高亮 | Options 页面、Popup 弹窗 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **单页只标一次开关** | 首次出现标注 | Options 页面开关 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **生僻词标注开关** | 词库外生僻词标注控制 | Options 页面开关 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **站点黑名单管理** | 当前域名一键排除、列表移除 | Options 列表、Popup 站点开关 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **Anthropic BYOK** | 凭据管理、单域鉴权、模型拉取 | Options AI 卡片、输入框 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **思考强度选择器** | low/medium/high 推流控制 | Options 下拉框 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **已认识生词管理** | 单词移除、全部清空 | Options 列表与清空按钮 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **AI 释义缓存管理** | 单条删除、全部清空 | Options 列表与清空按钮 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **数据备份与导入** | JSON 格式导出与合并导入 | Options 导出/导入按钮 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **生词卡片发音** | 原生 Web Speech 离线朗读 | 卡片小喇叭按钮 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **生词标记已认识** | 消除标注并落盘 | 卡片“✓ 认识”按钮 | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **AI 解释与取消** | SSE 推流与主动 Abort | 卡片“✨ AI 解释” / “取消” | A. IMPLEMENTED | **KEEP** (保留) | - |
-| **Anki 笔记导出** | **明确有意排除 (D3=NO)** | Options `#exportAnki` 按钮与文案 | **C. EXCLUDED (EXPOSED)** | **REMOVE** (彻底移除假入口) | **MUST FIX** |
-| **未实现服务商 (11家)**| **延后未实现 (仅 Anthropic)** | Options 11 张服务商卡片 | **D. DEFERRED (EXPOSED)** | **HIDE / REMOVE** (过滤仅留有效项)| **MUST FIX** |
-| **Safari 扩展快捷键** | **平台冲突 / 缺少支持** | Safari Extension 系统设置页 | **D. DEFERRED (EXPOSED)** | **REMOVE commands** (消除系统页配置)| **P1** |
-| **README Anki 宣称** | **明确有意排除** | `README.md` 第 10 行 | **C. EXCLUDED (PROMISED)** | **REMOVE** (修正文档表述) | **MUST FIX** |
-| **README 快捷键宣称**| **Safari 不适用** | `README.md` 键盘章节 | **D. DEFERRED (INCORRECT)**| **UPDATE / REMOVE** (移除 Chrome 说明)| **P1** |
-| **README 预置服务商**| **仅 Anthropic 可用** | `README.md` AI 章节 | **D. DEFERRED (INCORRECT)**| **UPDATE** (明确仅支持 Anthropic)| **P1** |
-| **AI 重新生成 (Redo)** | **延后未实现** | 卡片 (已隐藏) | D. DEFERRED | **NO CHANGE** (卡片无多余 UI) | - |
-| **Markdown / 富文本** | **简化为纯文本** | 设置页/卡片 (无入口) | D. DEFERRED | **NO CHANGE** (保持原生纯文本) | - |
-| **第三方 Shadow DOM** | **有意边界 (Opaque)** | 无 UI 入口 | B. BOUNDED | **DOCUMENT ONLY** (文档记录即可) | - |
-| **iframe 浏览上下文** | **有意边界 (Opaque)** | 无 UI 入口 | B. BOUNDED | **DOCUMENT ONLY** (文档记录即可) | - |
-
----
-
-## 5. UI Status Classification (四类 UI 状态归类)
-
-### A. IMPLEMENTED (真实存在且应保留)
-- 标注配置：水平滑动条、已过考纲、备考目标、样式四选一、行为开关、站点黑名单。
-- 数据管理：已认识词列表及清空、已生成释义列表及清空、JSON 备份与恢复。
-- 卡片操作：离线发音小喇叭、✓ 认识消词、✨ AI 解释、推流取消、异常重试。
-- 弹窗操作：标注总开关、当前站点开关、水平滑块、考纲选择、直达设置。
-
-### B. INTENTIONALLY BOUNDED (有意边界 / DOCUMENT ONLY)
-- **第三方 Shadow DOM 隔离**: 不提供穿透设置，无 UI，文档保留说明。
-- **iframe 隔离**: 不提供穿透设置，无 UI，文档保留说明。
-
-### C. INTENTIONALLY EXCLUDED (明确排除 / REMOVE)
-- **Anki 笔记导出**:
-  - `options/index.html` 中的 `#exportAnki` 按钮与 `#ankiNote` 提示段落。
-  - `options/main.ts` 中的点击监听与悬空代码。
-  - `README.md` 中关于导出的宣称。
-
-### D. DEFERRED / NOT IMPLEMENTED (延后未实现 / HIDE 或 REMOVE)
-- **未支持的 11 家 Provider 卡片**: 在设置页通过 `hasProviderAdapter` 过滤，避免用户误选报错。
-- **Manifest commands 声明**: 避免在 Safari 设置中误导用户配置不可靠的 Option 组合键。
-- **README 中的 Chrome 专属功能描述**: 移除 `chrome://extensions/shortcuts`、全量服务商列表与 `.output/chrome-mv3` 说明。
-
----
-
-## 6. Actionable Closure Plan (Step 2 可执行清理计划)
-
-### 6.1 MUST FIX 项 (必须在 Step 2 处理)
-1. **清理设置页 Anki 假 UI**:
-   - 目标文件: `src/entrypoints/options/index.html`, `src/entrypoints/options/main.ts`
-   - 操作: 删除 `#exportAnki` 按钮及 `#ankiNote` 节点；清理 `main.ts` 中的事件监听器与悬空 `loadDict` 代码。
-2. **收敛设置页服务商列表 (Provider Selector)**:
-   - 目标文件: `src/entrypoints/options/main.ts`
-   - 操作: `renderProviderCards()` 中引入 `hasProviderAdapter(id)` 过滤，仅渲染当前具备适配器的服务商（即仅展示 Anthropic），防止选择无效 Provider。
-3. **纠正 README.md 宣称与平台描述**:
-   - 目标文件: `README.md`, `PRIVACY.md`
-   - 操作: 删除 Anki 导出说明；将服务商列表明确标注为 Anthropic (BYOK)；清理 Chrome 专有路径描述。
-
-### 6.2 建议处理项 (P1 / Step 2 建议同步处理)
-1. **评估并清理 Manifest `commands`**:
-   - 目标文件: `wxt.config.ts`
-   - 操作: 在 Safari 构建中禁用 `manifest.commands` 导出，彻底消除 Safari Extension 偏好设置中的快捷键配置项。
-
-### 6.3 保持不变项 (NO CHANGE)
-- 卡片内部逻辑与布局保持不变（AI Redo、Markdown 无假 UI，TTS 与 AI Abort 交互健康）。
-- Popup 界面保持不变（所有控件均有真实能力支撑）。
-- 核心扫描器、缓存、权限逻辑严格不修改。
-
----
-
-## 7. Verification & Evidence Status (验证与证据状态)
-
-### 7.1 本地工程健康度验证
-- **TypeScript 类型检查 (`pnpm exec tsc --noEmit`)**: **PASS** (0 errors)
-- **全量自动化测试 (`pnpm test -- --run`)**: **385 / 385 PASS** (0 failed, 0 skipped, 耗时 46.29s)
-- **Safari 生产构建 (`pnpm exec wxt build -b safari --mv3`)**: **PASS** (产物 5.92 MB)
-- **代码格式与 Git Diff 检查 (`git diff --check`)**: **PASS** (0 whitespace/conflict 异常)
-
-### 7.2 证据状态划分 (Evidence Reality)
-- **VERIFIED (已实机/代码核验)**:
-  - 选项页 Anki 按钮点击确为无效假提示 (`setAnkiNote` 固化报错文本)；
-  - 选项页当前无条件渲染 12 家 Provider 卡片，且选择非 Anthropic 后确会由于 `UnsupportedProviderError` 抛错；
-  - Manifest `commands` 确由 `wxt.config.ts` 生成并打包进入产物 `manifest.json`；
-  - 卡片中无 AI Redo 或 Markdown 假控件。
-- **UNVERIFIED (未独立验证项)**:
-  - Safari Technology Preview 偏好设置中系统生成的快捷键在不同 macOS 辅助功能设定下的底层拦截顺序与表现。
-
----
-
-## 8. Audit Outcome & Readiness
-
-- **UI AUDIT RESULT**: `PASS WITH ACTIONABLE GAPS IDENTIFIED`
-- **当前状态**: 第一阶段只读审计已完备完成，生产源码 `src/` 保持 0 修改。
-- **下一步行动**: 等待审查确认后，进入 **M5-W11 Step 2 (UI Surface Cleanup Implementation)** 针对上述 MUST FIX 项执行最小代码清理。
+### 实际修改文件清单
+1. `src/entrypoints/options/index.html` (删除 Anki UI 元素)
+2. `src/entrypoints/options/main.ts` (删除 Anki 监听、废弃图标 import)
+3. `src/entrypoints/background.ts` (删除 onCommand 监听)
+4. `wxt.config.ts` (删除 manifest.commands 声明)
+5. `README.md` (纠偏功能宣称、服务商列表与构建路径)
+6. `PRIVACY.md` (纠偏原句缓存描述、服务商列表与联系方式)
+7. `tests/ui-surface.test.ts` (新增针对性 UI/Manifest/Migration 回归测试)
+8. `docs/ui-feature-surface-audit.md` (更新审计与实施记录)

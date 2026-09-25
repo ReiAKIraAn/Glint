@@ -7,7 +7,7 @@
 - **按水平标词**：选你的 CEFR 等级（A1–C2），或者你通过的考试（中考 / 高考 / 四级 / 六级），高于这个水平的词才会被标出来。
 - **备考模式**：只标四级、六级、考研、托福、雅思、GRE 词表里的词。
 - **悬浮卡片**：音标、发音、中文释义、考试标签都从本地词库查，不联网。配了 API Key 的话，还能让 AI 解释这个词在当前句子里的意思。
-- **我的词**：点「认识」的词以后不再标。已生成的释义可以导出到 Anki，设置和词表可以备份成 JSON。
+- **我的词**：点「认识」的词以后不再标。设置、已认识词表和已生成的释义可以备份成 JSON。
 - **按网站关闭**：在工具栏弹窗里一键关掉当前网站的标注。
 
 难度判定完全在本地完成，不调用 AI。只有你主动点了 AI 释义，才会发出网络请求。详见 [PRIVACY.md](PRIVACY.md)。
@@ -16,25 +16,19 @@
 
 用你自己的 API Key，在设置页里选服务商、填 Key 和模型名。支持：
 
-- Anthropic、OpenAI、Google Gemini
-- OpenRouter、OpenCode Zen、硅基流动
-- DeepSeek、Kimi、智谱 GLM、Groq
-- Ollama（本机，不用 Key）
-- 任意 OpenAI 兼容接口
+- **OpenAI**（如 `gpt-4o-mini`）
+- **DeepSeek**（如 `deepseek-chat`）
+- **自定义接口（Custom API）**：支持标准 OpenAI 兼容 Chat Completions 协议接口（支持自填 Base URL、免 Key 或带 Key 访问，并支持自定义额外请求体 JSON，默认 `{"thinking_mode": false}`）
 
 不配 Key 也能用，只是卡片上没有 AI 语境释义。
 
-## 键盘
+## 键盘交互
 
 | 键 | 作用 |
 | --- | --- |
-| `Alt+G` | 跳到下一个标注的词，弹出卡片 |
-| `Alt+Shift+G` | 上一个 |
-| `Esc` | 收起卡片 |
+| `Esc` | 收起当前展开/钉住的卡片 |
 
-可以在 `chrome://extensions/shortcuts` 里改键。
-
-浏览器需要支持 CSS Custom Highlight API：Chrome 128+、Safari 17.2+、Firefox 140+。
+浏览器需要支持 CSS Custom Highlight API：Safari 17.2+。
 
 ## 开发
 
@@ -50,8 +44,8 @@ pnpm dev
 
 | 命令 | 作用 |
 | --- | --- |
-| `pnpm build` | 打包到 `.output/chrome-mv3`，可在 `chrome://extensions` 里「加载已解压的扩展程序」 |
-| `pnpm zip` | 打成上架用的 zip |
+| `pnpm build:safari` | 打包 Safari MV3 产物到 `.output/safari-mv3` |
+| `pnpm zip:safari` | 打成 Safari 上架用的 zip |
 | `pnpm test` | 跑测试 |
 | `pnpm compile` | 类型检查 |
 | `pnpm demo` | 预览沙盒，不装扩展也能调标注效果、设置页和弹窗 |

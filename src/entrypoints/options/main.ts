@@ -7,17 +7,8 @@ import { paintRange } from '@/lib/controls';
  * 扩展不该为了几个 logo 破例，扩展的 CSP 也不会放行。单色那几个是 fill=currentColor，
  * 跟着明暗主题走；官方标识本来就是彩色的（Gemini、DeepSeek 这些）才用 -color。
  */
-import anthropicIcon from '@lobehub/icons-static-svg/icons/anthropic.svg?raw';
 import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg?raw';
-import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg?raw';
-import openrouterIcon from '@lobehub/icons-static-svg/icons/openrouter-color.svg?raw';
-import opencodeIcon from '@lobehub/icons-static-svg/icons/opencode.svg?raw';
-import siliconcloudIcon from '@lobehub/icons-static-svg/icons/siliconcloud-color.svg?raw';
 import deepseekIcon from '@lobehub/icons-static-svg/icons/deepseek-color.svg?raw';
-import moonshotIcon from '@lobehub/icons-static-svg/icons/moonshot.svg?raw';
-import zhipuIcon from '@lobehub/icons-static-svg/icons/zhipu-color.svg?raw';
-import groqIcon from '@lobehub/icons-static-svg/icons/groq.svg?raw';
-import ollamaIcon from '@lobehub/icons-static-svg/icons/ollama.svg?raw';
 import {
   BACKUP_VERSION,
   explanationsStore,
@@ -45,7 +36,6 @@ import {
 import { DEFAULT_EXTRA_BODY_STRING, parseAndValidateExtraBody } from '@/lib/providers/extra-body';
 import { mountContactLinks } from '@/lib/links';
 import { escapeHtml as escape, boldWord } from '@/lib/text';
-import { toAnkiTSV, type AnkiRow } from '@/lib/anki';
 import { scan, sentenceAround, type Token } from '@/lib/scan';
 import { resolve } from '@/lib/lexicon';
 import { applyStyle, paint, clear } from '@/lib/highlight';
@@ -72,17 +62,8 @@ import {
 } from '@/lib/types';
 
 const ICONS: Record<string, string> = {
-  anthropic: anthropicIcon,
   openai: openaiIcon,
-  'gemini-color': geminiIcon,
-  'openrouter-color': openrouterIcon,
-  opencode: opencodeIcon,
-  'siliconcloud-color': siliconcloudIcon,
   'deepseek-color': deepseekIcon,
-  moonshot: moonshotIcon,
-  'zhipu-color': zhipuIcon,
-  groq: groqIcon,
-  ollama: ollamaIcon,
 };
 
 /** 「自定义接口」没有品牌图标，自己画一个插头。 */
@@ -765,31 +746,6 @@ function ago(time: number): string {
   return days < 30 ? `${days} 天前` : `${Math.round(days / 30)} 个月前`;
 }
 
-// ---------------------------------------------------------------- 导出到 Anki
-
-/**
- * 词典的四元组行。background 里有一份一模一样的懒加载（loadDict），这里没有复用它，
- * 因为走消息意味着一次导出要发几百上千次 sendMessage。设置页本身就是扩展页面，
- * 直接把这 3.5MB 读进来快得多，而且只在点了导出的那一下才读——平时打开设置页不该
- * 为一个可能永远不点的按钮付这笔加载。
- */
-let dictPromise: Promise<Record<string, [string, string, string, number]>> | undefined;
-
-function loadDict() {
-  dictPromise ??= fetch(browser.runtime.getURL('/data/dict.json'))
-    .then((response) => response.json())
-    .catch(() => ({}));
-  return dictPromise;
-}
-
-$('exportAnki').addEventListener('click', async () => {
-  setAnkiNote('Safari Personal Edition 暂不支持导出到 Anki。', 'bad');
-});
-
-function setAnkiNote(text: string, tone?: 'ok' | 'bad') {
-  setNote($('ankiNote'), text, tone);
-}
-
 // ---------------------------------------------------------------- 不标注的网站
 
 function renderSites() {
@@ -929,7 +885,7 @@ function setNote(note: HTMLElement, text: string, tone?: 'ok' | 'bad') {
   else delete note.dataset.tone;
 }
 
-/** 造个临时链接把 blob 交出去。导出备份和导出 Anki 走同一套。 */
+/** 造个临时链接把 blob 交出去。导出备份走这套。 */
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

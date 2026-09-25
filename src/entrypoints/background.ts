@@ -31,19 +31,6 @@ export default defineBackground(() => {
   void migrateLegacyKey();
 
   /**
-   * 快捷键转给当前标签页的内容脚本。
-   *
-   * onCommand 的第二个参数就是触发时那个标签页，所以不用 tabs 权限也拿得到 id。
-   * 页面上没有内容脚本（chrome:// 之类）时 sendMessage 会拒绝，吞掉就行——
-   * 在那种页面上按快捷键本来就不该有任何反应。
-   */
-  browser.commands?.onCommand.addListener((command, tab) => {
-    if (tab?.id === undefined) return;
-    const delta = command === 'prev-word' ? -1 : 1;
-    void browser.tabs.sendMessage(tab.id, { kind: 'nav:step', delta }).catch(() => {});
-  });
-
-  /**
    * **不要在这里返回 Promise。**
    *
    * 「监听器返回 Promise」是 Firefox 的写法，Chromium 上一直没有（crbug.com/1185241）。

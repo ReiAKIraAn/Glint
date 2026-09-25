@@ -57,16 +57,6 @@ export default defineConfig({
         default_icon: { 16: '/icon/16.png', 32: '/icon/32.png' },
       },
       permissions: ['storage', 'activeTab'],
-      commands: {
-        'next-word': {
-          suggested_key: { default: 'Alt+G' },
-          description: '跳到下一个标注的词',
-        },
-        'prev-word': {
-          suggested_key: { default: 'Alt+Shift+G' },
-          description: '跳到上一个标注的词',
-        },
-      },
       /**
        * Safari-First 最小权限原则 (Least-Privilege)：
        * 在 Safari 中不预置任何 required host_permissions，避免安装时弹出 10+ 商业 AI 域名警示。
