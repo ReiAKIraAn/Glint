@@ -1,0 +1,45 @@
+{
+  "baseline": "M5-PERF-01R",
+  "commit": "7fd9b9e1e003532e6486f059672ef190110a1ccb",
+  "version": "1.1.4",
+  "environment": {
+    "macos": "27.2",
+    "safariTechnologyPreview": "27.0",
+    "cpu": "Apple M1 Max",
+    "memoryGB": 64,
+    "node": "22"
+  },
+  "tests": {
+    "mutation_characterData": {
+      "10": 4.26,
+      "50": 7.40,
+      "100": 11.27,
+      "250": 33.92,
+      "500": 109.36,
+      "1000": 468.83
+    },
+    "mutation_addedNodes": {
+      "10": 4.99,
+      "50": 9.62,
+      "100": 19.25,
+      "250": 68.73,
+      "500": 189.92,
+      "1000": 766.95
+    },
+    "card": {
+      "meanMs": 0.70,
+      "peakMs": 3.45
+    },
+    "ai": {
+      "shortStreamMs": 0.41,
+      "longStreamMs": 0.47,
+      "abortMeanMs": 0.20
+    }
+  },
+  "unverified": [
+    "safari_webkit_process_cpu",
+    "safari_service_worker_cpu",
+    "ai_heap_attribution",
+    "real_network_slow_stream_over_30s"
+  ]
+}

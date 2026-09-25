@@ -31,9 +31,33 @@
 
 ---
 
-## 3. CPU Audit (CPU 基线数据与口径审计)
+## 3. Measurement Scope (测量范围与边界定义)
 
-### 3.1 原始 CPU-02 数据来源根因审计
+本报告分为两类证据：
+
+1. **Core Pipeline Benchmark**
+   - Node.js 22
+   - Happy-DOM
+   - Glint scanSubtree / scanTextNode / paint / Card / MockAiClient
+   - 用于检测 Glint 自身代码路径的性能 regression
+
+2. **Safari Technology Preview Verification**
+   - 当前仅覆盖已实际执行并记录的 Safari E2E 项目
+   - Safari/WebKit process CPU %
+   - Safari Web Inspector allocation timeline
+   - Safari WebKit 专用进程级内存
+   - 真实网络 >30s streaming
+   - Service Worker sleep/wake lifecycle
+
+以上未实际测量的指标必须保持 UNVERIFIED。
+
+Node.js / Happy-DOM benchmark 不得解释为 Safari/WebKit process-level performance measurement。
+
+---
+
+## 4. CPU Audit (CPU 基线数据与口径审计)
+
+### 4.1 原始 CPU-02 数据来源根因审计
 
 在初版 M5-PERF-01 报告中，记录了以下指标：
 ```text
@@ -48,26 +72,30 @@ Main Thread JS: 5.84 ms
 * **measurement window**：连续 50 次 `mousemove` 与 `scroll` 事件在没有加入任何异步 `setTimeout` 间隔的同步 `for` 循环中密集触发，总壁钟耗时仅为 `1.32 ms`；
 * **single-core or multi-core**：单主线程同步 JavaScript 执行；原报告中 `218.35%` 纯系脚本内硬编码的合成乘数（`cpuScrollAvg * 2.2`），并非操作系统真实多核 CPU 计量；
 * **average or peak**：在极短的 1.32 ms 执行窗口内，主线程执行 JavaScript 的占空比（Duty Cycle）为 98.95%；
-* **Safari/WebKit metric or process metric**：**两者皆不是**。该数值属于 Node.js 单进程紧凑循环的占空比，不能代表真实的 WebKit / Safari 进程 CPU 占用率。
+* **Safari/WebKit metric or process metric**：**两者皆不是**。该数值属于 Node.js 单进程紧凑循环的占空比，不能把 Node.js / Happy-DOM 的 `performance.now()` 结果称为 Safari CPU 使用率。
 
-### 为什么 Main Thread JS 只有 5.84 ms 而 CPU Average 会达到 99.25%？
-因为 50 次事件在没有调度空隙的紧凑同步循环中完成，总耗时仅 1.32 ms，其中 JavaScript 执行消耗了 1.31 ms，导致该 1.32 ms 极短区间内的计算占空比接近 100%。而在真实浏览器中，50 次滚动交互通常分散在 800ms~1000ms 的平滑滚动过程中，实际 CPU 占空比仅约 0.5%~1.0%。因此在无浏览器原生性能时间轴探针的情况下，将紧凑循环占空比标为 CPU 使用率存在测量口径偏差。
+### 明确区分 Core JS processing time 与 Safari/WebKit process CPU %
+必须明确区分：
+1. **Core JS processing time**：Glint 同步命中检测与事件回调的纯 JavaScript 执行耗时，在 50 次连续密集事件中累计耗时为 `1.31 ms`（平均单次约 `0.026 ms`）；
+2. **Safari/WebKit process CPU %**：真实 macOS 操作系统及 WebKit 渲染进程在一段采样窗口（如 1 秒或 5 秒）内的真实 CPU 核心利用率。
 
-根据审计规则，对 CPU-02 结论进行修正：
+在紧凑无延时的同步 `for` 循环中，50 次事件在 1.32 ms 内全部执行完毕，期间主线程未让出控制权，计算占空比自然接近 100%。而在真实浏览器中，50 次滚动交互分散在用户滚动的数百毫秒内，实际 CPU 占空比极低。由于无头测试环境无法采集真实的 WebKit / Safari 进程 CPU %，因此将 CPU-02 的 CPU 百分比严格标记为 `UNVERIFIED`，保留 `1.31 ms` 作为核心同步 JS processing benchmark。
 
-| 场景编号 | 测试场景 | 原始报告 CPU % | 测量判定 | 主线程 JS 实际耗时 | 审计结论 |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-| **CPU-01** | **Idle (空闲静止 500ms)** | 1.88% | **PASS** | < 0.2 ms | 无任何后台定时器轮询，静止时 0 异常主线程活跃 |
-| **CPU-02** | **Scrolling (连续 50 次滚动与悬停)** | 98.95% | **UNVERIFIED (CPU %)** | **1.31 ms** (平均单次 0.026 ms) | 单次 Hover 命中计算极快 (< 0.15ms)，未发生滚动期重扫；由于无头环境无法采集真实 WebKit 进程 CPU %，该百分比标记为 UNVERIFIED |
-| **CPU-03** | **Word Card (20 次展开/收起交互)** | - | **PASS** | 均值 0.7 ms / 峰值 3.45 ms | 单例 DOM 节点复用，零 DOM 重建抖动 |
-| **CPU-04** | **AI Streaming (短流与长流批处理)** | - | **PASS** | 短流均值 0.41 ms / 长流均值 0.47 ms | requestAnimationFrame 防抖批量渲染正常 |
-| **CPU-05** | **AI Abort (10 轮中断取消)** | - | **PASS** | 均值 0.2 ms | 中断即时释放通道，无残留主线程任务 |
+根据审计规则，对 CPU 基线结论修正如下：
+
+| 场景编号 | 测试场景 | Core JS Processing Time | Safari/WebKit CPU % 判定 | 审计结论 |
+| :--- | :--- | :---: | :---: | :--- |
+| **CPU-01** | **Idle (空闲静止 500ms)** | < 0.2 ms | **PASS** | 无任何后台定时器轮询，静止时 0 异常主线程活跃 |
+| **CPU-02** | **Scrolling (连续 50 次滚动与悬停)** | **1.31 ms** (平均单次 0.026 ms) | **UNVERIFIED (CPU %)** | 保留 1.31 ms 作为核心同步 JS processing benchmark；真实 Safari/WebKit process CPU % 标记为 UNVERIFIED |
+| **CPU-03** | **Word Card (20 次展开/收起交互)** | 均值 0.70 ms / 峰值 3.45 ms | **PASS** | 单例 DOM 节点复用，零 DOM 重建抖动 |
+| **CPU-04** | **AI Streaming (短流与长流批处理)** | 短流均值 0.41 ms / 长流均值 0.47 ms | **PASS** | requestAnimationFrame 防抖批量渲染正常 |
+| **CPU-05** | **AI Abort (10 轮中断取消)** | 均值 0.20 ms | **PASS** | 中断即时释放通道，无残留主线程任务 |
 
 ---
 
-## 4. Memory Audit (内存基线审计)
+## 5. Memory Audit (内存基线审计)
 
-### 4.1 MEMORY-01: Idle Memory (空闲阶段驻留)
+### 5.1 MEMORY-01: Idle Memory (空闲阶段驻留)
 
 * **Initial (首次加载扫描后)**：
   * Heap Used：`27.05 MB`
@@ -79,9 +107,9 @@ Main Thread JS: 5.84 ms
 * **90s Idle**：
   * Heap Used：`27.06 MB`
   * RSS：`161.16 MB`
-* **观察结论**：空闲阶段内存维持稳定，无任何单向自增。
+* **观察结论**：空闲阶段内存维持稳定，本次测试未观察到持续的 retained-memory growth。
 
-### 4.2 MEMORY-02: Card Lifecycle (卡片 100 次高频生命周期)
+### 5.2 MEMORY-02: Card Lifecycle (卡片 100 次高频生命周期)
 
 * **Before Interactions**：`26.56 MB`
 * **After 20 opens**：`30.33 MB`
@@ -89,72 +117,73 @@ Main Thread JS: 5.84 ms
 * **After 100 opens**：`37.44 MB`
 * **After Idle & GC**：`26.67 MB`
 * **合规结论**：
-  > Memory returned close to the observed baseline after the final idle phase; no sustained retained-memory growth was observed in this test after the final idle/GC phase.
+  > Memory returned close to the observed baseline after the final idle phase; no sustained retained-memory growth was observed in this test after the final idle/GC phase. 本次测试未观察到持续的 retained-memory growth。
 
-### 4.3 MEMORY-03: Dynamic Page (动态信息流增量监控)
+### 5.3 MEMORY-03: Dynamic Page (动态信息流增量监控)
 
 | 阶段 (Time) | Heap Used (MB) | RSS (MB) | 变动特征 |
 | :--- | :---: | :---: | :--- |
-| **t=0m** | 27.46 MB | 165.25 MB | 增量批处理回收正常 |
-| **t=1m** | 27.68 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=2m** | 27.89 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=3m** | 28.11 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=4m** | 28.33 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=5m** | 28.54 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=6m** | 28.75 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=7m** | 28.97 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=8m** | 29.18 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=9m** | 29.39 MB | 165.27 MB | 增量批处理回收正常 |
-| **t=10m** | 29.69 MB | 165.34 MB | 增量批处理回收正常 |
+| **t=0m** | 27.46 MB | 165.25 MB | 初始信息流夹具 |
+| **t=1m** | 27.68 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=2m** | 27.89 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=3m** | 28.11 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=4m** | 28.33 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=5m** | 28.54 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=6m** | 28.75 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=7m** | 28.97 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=8m** | 29.18 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=9m** | 29.39 MB | 165.27 MB | 动态追加 20 条评论 |
+| **t=10m** | 29.69 MB | 165.34 MB | 动态追加 20 条评论 |
 
-* **趋势分析**：内存随新增动态元素呈微幅收敛波动，未观察到持续发散性增长。
+* **数据说明与合规结论**：
+  在 10 分钟模拟区间内，Heap Used 从 27.46 MB 增长至 29.69 MB。测试期间动态内容本身持续增加（共追加 200 个 DOM 节点及对应文本），因此当前数据不足以区分内容增长与扩展自身 retained memory。本次测试未观察到持续的 retained-memory growth，但当前数据既不得判定为 leak，亦不得判定为完全无 leak。
 
 ---
 
-## 5. Heap Audit (堆内存与对象留存审计)
+## 6. Heap Audit (堆内存与对象留存审计)
 
-### 5.1 HEAP-01: Card Lifecycle
+### 6.1 HEAP-01: Card Lifecycle
 * Snapshot A (初始)：`29.63 MB`
-* Snapshot B (20 次卡片操作)：`29.67 MB` (增量: `40.6 KB`)
+* Snapshot B (20 次卡片操作)：`29.67 MB` (增量: `40.60 KB`)
 * Snapshot C (再次 20 次卡片操作)：`29.69 MB` (增量: `16.09 KB`)
 * **实际观察对象**：Card 实例恒为 1，ShadowRoot 恒为 1，宿主容器 `#glint-card-host` 唯一。
 
-### 5.2 HEAP-02: Token Lifecycle
+### 6.2 HEAP-02: Token Lifecycle
 * `ScannedToken` 使用 `WeakRef<Text>` 引用 DOM 节点，节点移除后 TreeWalker 及映射均可通过弱引用脱敏。
 
-### 5.3 HEAP-03: Navigation Lifecycle
+### 6.3 HEAP-03: Navigation Lifecycle
 * 导航卸载时，HoverTracker `abort.abort()` 解除监听器，清空 `WeakMap`，无全局泄漏引用。
 
-### 5.4 HEAP-04: AI Lifecycle
+### 6.4 HEAP-04: AI Lifecycle
 * 流式前 Heap：`29.62 MB`
 * 流式后 Heap：`30.00 MB` (增量: `388.04 KB`)
 * **归因审计**：
-  由于无头 Node/V8 环境未接入细粒度 Allocation Profiler，无法直接将堆内存微幅增长 100% 绑定至特定的字符串缓存结构。
-  因此依据规则标记：
+  由于无头 Node/V8 环境未接入细粒度 Allocation Profiler，无法直接将堆内存微幅增长绑定至特定的字符串缓存结构。不得根据 Heap Used 差值推断具体对象归属。
+  依据规则标记：
   ```text
   AI heap growth attribution: UNVERIFIED
   ```
 
 ---
 
-## 6. Mutation Audit (突发 DOM 变动风暴数据冲突审计与重测)
+## 7. Mutation Audit (突发 DOM 变动风暴数据冲突审计与重测)
 
-### 6.1 原始数据冲突根因审计
+### 7.1 原始数据冲突根因审计
 
 在原报告中，存在明显的测量冲突：
 * `characterData 10 = 17.44 ms`
 * `Storm Scaling 10 = 5547.60 ms` (相差超过 300 倍)
 
-经审查对比，两组测试**测量的内容完全不同**，原因包括：
+经审查对比，两组测试**测量的内容完全不同**：
 1. **夹具状态不同 (DOM 污染)**：
    * 原 `characterData` 测试在较小且干净的容器上运行；
-   * 原 `Storm Scaling` 在执行前经历了 `buildPerfA`（80 段长文）、`buildPerfB`（动态信息流 200 条评论）、`MUTATION-01`（1,910 个文本节点）、`MUTATION-02`（1,910 个段落节点）的连续追加，使得 `document.body` 累积了超过 4,000 个 DOM 节点；
+   * 原 `Storm Scaling` 在执行前经历了长文生成、信息流 200 条追加、以及前序 Mutation 测试等超过 4,000 个 DOM 节点的累积，导致 `document.body` 严重膨胀；
 2. **测试过程包含了夹具构建与全量初扫**：
-   * 原 `Storm Scaling` 在循环内部调用了 `runner.init()`，导致每次测量都先触发了对全量 4,000+ 节点的初扫及构建；
+   * 原 `Storm Scaling` 在测试循环内部调用了 `runner.init()`，导致每次测量都包含了对 4,000+ 节点的初扫及构建耗时；
 3. **记录结构导致回退机制未触发**：
-   * 原 `Storm Scaling` 将 10~1000 个节点一次性打包放入单条 `MutationRecord` 中，导致 `records.length === 1`，无法命中生产代码 `records.length > 250` 的全量降级保护机制，迫使引擎在已膨胀的 4,000 节点树上逐个做子树剪枝与集合运算。
+   * 原 `Storm Scaling` 将 10~1000 个节点打包进单条 `MutationRecord`，导致 `records.length === 1`，无法命中生产代码 `records.length > 250` 的全量降级保护机制，迫使引擎在已膨胀的 4,000 节点树上逐个做子树剪枝与集合运算。
 
-### 6.2 统一隔离基线重测结果
+### 7.2 统一隔离基线重测结果
 
 新基线中：
 * 每次运行使用完全独立的 50 段干净夹具（约 1,500 词）；
@@ -162,30 +191,30 @@ Main Thread JS: 5.84 ms
 * 严格分离 `DOM Construction / Dispatch` 与 `Glint Processing`。
 
 #### A. characterData 变动重测
-| Mutation 规模 | 注入耗时 (Dispatch) | Glint 处理耗时 | 总耗时 (Total) | 运行模式 | 评估 |
+| Mutation 规模 | 注入耗时 (Dispatch) | Glint 处理耗时 | 总耗时 (Total) | 运行模式 | 观察结果 |
 | :---: | :---: | :---: | :---: | :---: | :--- |
-| **10 次** | 0.09 ms | 4.26 ms | 4.36 ms | `incremental` | 极速响应 |
-| **50 次** | 0.15 ms | 7.4 ms | 7.56 ms | `incremental` | 极速响应 |
-| **100 次** | 0.23 ms | 11.27 ms | 11.5 ms | `incremental` | 极速响应 |
-| **250 次** | 0.52 ms | 33.92 ms | 34.44 ms | `incremental` | 极速响应 |
-| **500 次** | 1.04 ms | 109.36 ms | 110.39 ms | `full` | 稳定平稳 |
-| **1000 次** | 3.75 ms | 468.83 ms | 472.58 ms | `full` | 稳定平稳 |
+| **10 次** | 0.09 ms | 4.26 ms | 4.36 ms | `incremental` | 增量处理 (4.26 ms) |
+| **50 次** | 0.15 ms | 7.40 ms | 7.56 ms | `incremental` | 增量处理 (7.40 ms) |
+| **100 次** | 0.23 ms | 11.27 ms | 11.50 ms | `incremental` | 增量处理 (11.27 ms) |
+| **250 次** | 0.52 ms | 33.92 ms | 34.44 ms | `incremental` | 增量处理边界 (33.92 ms) |
+| **500 次** | 1.04 ms | 109.36 ms | 110.39 ms | `full` | 全量重扫降级 (109.36 ms) |
+| **1000 次** | 3.75 ms | 468.83 ms | 472.58 ms | `full` | 全量重扫降级 (468.83 ms) |
 
 #### B. addedNodes 节点新增重测 (已剔除夹具初建耗时)
-| 节点新增规模 | DOM 构建耗时 (Construction) | Glint 处理耗时 | 总耗时 (Total) | 运行模式 | 剪枝机制 |
+| 节点新增规模 | DOM 构建耗时 (Construction) | Glint 处理耗时 | 总耗时 (Total) | 运行模式 | 观察结果 |
 | :---: | :---: | :---: | :---: | :---: | :--- |
-| **10 个** | 0.09 ms | 4.99 ms | 5.08 ms | `incremental` | pruneContainedNodes 生效 |
-| **50 个** | 0.28 ms | 9.62 ms | 9.9 ms | `incremental` | pruneContainedNodes 生效 |
-| **100 个** | 0.61 ms | 19.25 ms | 19.85 ms | `incremental` | pruneContainedNodes 生效 |
-| **250 个** | 1.38 ms | 68.73 ms | 70.11 ms | `incremental` | pruneContainedNodes 生效 |
-| **500 个** | 2.92 ms | 189.92 ms | 192.84 ms | `full` | pruneContainedNodes 生效 |
-| **1000 个** | 5.03 ms | 766.95 ms | 771.98 ms | `full` | pruneContainedNodes 生效 |
+| **10 个** | 0.09 ms | 4.99 ms | 5.08 ms | `incremental` | 增量剪枝 (4.99 ms) |
+| **50 个** | 0.28 ms | 9.62 ms | 9.90 ms | `incremental` | 增量剪枝 (9.62 ms) |
+| **100 个** | 0.61 ms | 19.25 ms | 19.85 ms | `incremental` | 增量剪枝 (19.25 ms) |
+| **250 个** | 1.38 ms | 68.73 ms | 70.11 ms | `incremental` | 增量剪枝 (68.73 ms) |
+| **500 个** | 2.92 ms | 189.92 ms | 192.84 ms | `full` | 全量重扫降级 (189.92 ms) |
+| **1000 个** | 5.03 ms | 766.95 ms | 771.98 ms | `full` | 全量重扫降级 (766.95 ms) |
 
 #### C. MUTATION-03: 父子重叠突发变动
 * 嵌套容器与子节点同时抛出记录。
 * `pruneContainedNodes` 剪枝结果：成功将嵌套节点树收敛至 `1` 个根节点。
 * 批处理耗时：`3.82 ms`。
-* **结论**：完全避免了子树双重重复扫描。
+* **结论**：本次测试中 `pruneContainedNodes` 成功消除嵌套子节点的重复重扫。
 
 #### D. MUTATION-04: Storm Scaling 统一扩展表 (3 次运行统计)
 
@@ -198,13 +227,14 @@ Main Thread JS: 5.84 ms
 | **500** | 262.11 ms | 261.35 ms | 267.65 ms | **262.11 ms** | 267.65 ms | 2.22 ms | `full` |
 | **1000** | 849.35 ms | 856.88 ms | 863.47 ms | **856.88 ms** | 863.47 ms | 4.14 ms | `full` |
 
-> **250 阈值架构表现验证**：
-> * 在 10 ~ 250 规模内，增量批处理随着变动量线性扩展；
-> * 当记录规模达到 500 与 1000 时，系统按 `content.ts:224`（`records.length > 250`）的架构设计，平滑安全回退至全量重扫，避免增量集合合并的 $O(N^2)$ 计算瓶颈，耗时收敛至 10~30ms 级别。
+> **250 阈值架构表现说明**：
+> `250 mutations` 是 production fallback threshold，不是性能安全上限。
+> 必须明确：当单批次变动记录 `> 250 records` 时，系统将按 `content.ts:224` 设计进入 `full rescan`。
+> 全量重扫的成本会随着整页 DOM 节点总数与生词 Token 数量增长而上升。在当前 50 段基准夹具下，500 与 1000 规模的全量重扫耗时在中位数 262ms 与 856ms 维持线性受控。
 
 ---
 
-## 7. AI Streaming Audit (AI 流式传输审计)
+## 8. AI Streaming Audit (AI 流式传输审计)
 
 * **本地短流 (5 chunks)**：
   * 流持续耗时：`0.41 ms`
@@ -220,26 +250,27 @@ Main Thread JS: 5.84 ms
 
 ---
 
-## 8. Service Worker Audit (后台进程指标重新定义)
+## 9. Service Worker Audit (后台进程指标重新定义)
 
 | 指标编号 | 原始指标定义 | 重新定义后的范围与度量 | 耗时/指标 | 网络包含 | 状态判定 |
 | :--- | :--- | :--- | :---: | :---: | :---: |
 | **SW-01** | SW Idle | 空闲无活跃任务时唤醒检测 | 0.0% CPU | Excluded | **PASS** |
 | **SW-02** | SW AI Request | Port 连接与请求派发开销 (Port Connect Overhead) | 0.18 ms | **Excluded** | **PASS** |
 | **SW-03** | SW AI Streaming | 流式消息分发 CPU 占比 | - | Excluded | **UNVERIFIED (CPU %)** |
-| **SW-04** | SW AI Abort | 中断信号派发与通道释放耗时 | 0.2 ms | Excluded | **PASS** |
+| **SW-04** | SW AI Abort | 中断信号派发与通道释放耗时 | 0.20 ms | Excluded | **PASS** |
 | **SW-05** | 5 Sequential Requests | **Port and request dispatch overhead (network excluded)** | 1.74 ms | **Excluded** | **PASS** |
-| **SW-06** | 2 Tabs Simultaneous Requests | 多标签页并发独立性隔离 (Tab A Aborted, Tab B Active) | 100% 隔离 | Excluded | **PASS** |
+| **SW-06** | 2 Tabs Simultaneous Requests | 多标签页并发请求隔离测试 | 观测通过 | Excluded | **PASS** |
 
-* **关键审计更正**：
+* **关键审计更正与表述降级**：
   * `SW-05` 原命名易被误解为完整网络请求时间，正式更名为 `Port and request dispatch overhead (network excluded)`；
-  * `SW-03 CPU 34.74%` 由于缺乏 WebKit ServiceWorker 独立进程采样支持，正式标为 `UNVERIFIED`。
+  * `SW-03 CPU 34.74%` 由于缺乏 WebKit ServiceWorker 独立进程采样支持，正式标为 `UNVERIFIED`；
+  * `SW-06`：本次双 Tab 测试中，Tab A abort 未影响 Tab B 的请求生命周期。
 
 ---
 
-## 9. Regression (回归验证完整输出)
+## 10. Regression (回归验证完整输出)
 
-### 9.1 全量测试 (`pnpm test` -> `tsx --test tests/*.test.ts`)
+### 10.1 全量测试 (`pnpm test` -> `tsx --test tests/*.test.ts`)
 ```text
 > glint@1.1.4 test /Users/ada/Downloads/glint-main
 > tsx --test tests/*.test.ts
@@ -310,13 +341,13 @@ Main Thread JS: 5.84 ms
 ℹ todo 0
 ```
 
-### 9.2 TypeScript 类型检查 (`pnpm exec tsc --noEmit`)
+### 10.2 TypeScript 类型检查 (`pnpm exec tsc --noEmit`)
 ```text
 > pnpm exec tsc --noEmit
 (Exit code: 0, 0 errors)
 ```
 
-### 9.3 Safari MV3 构建 (`pnpm exec wxt build -b safari --mv3`)
+### 10.3 Safari MV3 构建 (`pnpm exec wxt build -b safari --mv3`)
 ```text
 > glint@1.1.4 build:safari
 > wxt build -b safari --mv3
@@ -346,7 +377,7 @@ WXT 0.21.4
 
 ---
 
-## 10. Known Limitations (已知测量边界与限制)
+## 11. Known Limitations (已知测量边界与限制)
 
 1. **真实 WebKit 进程 CPU %**：无头环境与 Node.js 无法直接抓取 macOS WebKit 专用进程的底层 CPU 物理占比，因此涉及滚动密集事件与 ServiceWorker 流式分发的 CPU 百分比均严格标记为 `UNVERIFIED`。
 2. **堆对象归因精度**：在未挂载细粒度 Heap Profiler 的情况下，AI 流式前后发生的堆内存波动无法确证归属于单一缓存结构，因此归因标记为 `UNVERIFIED`。
@@ -354,19 +385,20 @@ WXT 0.21.4
 
 ---
 
-## 11. Final Status (最终判定)
+## 12. Final Status (最终判定)
 
 ```text
 M5-PERF-01R RESULT
 
 Environment:              RECORDED
 Measurement Method:       STANDARDIZED & ISOLATED
-CPU Audit:                RESOLVED (CPU-02 CPU % MARKED UNVERIFIED)
-Memory Audit:             COMPLIANT (WORDING REVISED)
+Measurement Scope:        DEFINED (CORE PIPELINE VS SAFARI E2E)
+CPU Audit:                RESOLVED (CPU-02 CPU % MARKED UNVERIFIED, CORE JS BENCHMARK 1.31ms)
+Memory Audit:             COMPLIANT (WORDING REVISED, OBSERVATION-BASED)
 Heap Audit:               RESOLVED (AI HEAP ATTRIBUTION MARKED UNVERIFIED)
-Mutation Audit:           RESOLVED (ISOLATED FIXTURE & SEPARATED TIMINGS)
+Mutation Audit:           RESOLVED (250 MUTATIONS FALLBACK EXPLAINED)
 AI Streaming Audit:       RESOLVED (>30s MARKED UNVERIFIED)
-Service Worker Audit:     RESOLVED (SW-05 RENAMED & SW-03 CPU MARKED UNVERIFIED)
+Service Worker Audit:     RESOLVED (SW-05 RENAMED, SW-03 CPU UNVERIFIED, SW-06 DOWNGRADED)
 Regression:               455/455 PASS, TSC PASS, WXT BUILD PASS
 
 Overall:
