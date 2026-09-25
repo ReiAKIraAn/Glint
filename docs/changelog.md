@@ -4,6 +4,52 @@
 
 ---
 
+## 1.2.0 - Safari Personal Edition - 2026-09-25
+
+### Added
+
+- AI Card Redo：在当前单词卡中重新生成 AI 释义。
+- 用户可主动点击 Redo 按钮绕过当前 AI 缓存，结合当前页面完整句子上下文重新向模型请求精准中文释义。
+- 成功生成的新 AI 释义会自动原子更新本地 AI explanation cache。
+
+### Behavior
+
+- Redo 会绕过当前缓存发起新的 AI 请求。
+- Redo 不删除旧缓存（仅在成功生成完整新释义后原子覆盖）。
+- Cancel / Error / Timeout 均安全保留既有旧 AI 释义，不破坏卡片当前展示。
+- 新结果完整生成后替换当前 AI 释义及缓存。
+- 单卡请求互斥：每个 Card 同时只允许一个活动 AI 请求，点击 Redo 自动中止既有正在进行的流式请求。
+- requestId 隔离：旧请求即便晚到达也绝不覆盖新请求。
+- 单词切换、页面切换和多 Tab 请求保持严格隔离。
+
+### Validation
+
+- Automated tests: 475/475 PASS
+- TypeScript: PASS (0 errors)
+- Safari production build: PASS
+- Real Safari Technology Preview E2E: PASS (REDO-01 ~ REDO-09 全部实机通过)
+- Performance baseline: PASS (全核心链路性能指标回归门禁通过)
+- Console during real Safari E2E: CLEAN (零 CSP / 零 TypeError / 零 unhandled rejection)
+
+### Known Limitations
+
+- Safari process-level private memory attribution 未完成正式量化验证。
+- JSC GC/heap internals 未完成正式量化验证。
+- > 30s continuous remote model live streaming 尚未完成正式真实网络验证。
+- M5-PERF benchmark 主要反映 Node.js + Happy-DOM 的 Glint Core Pipeline，而不是 Safari 进程级 CPU/memory 指标。
+
+---
+
+## 1.1.4 - Safari Personal Edition - 2026-09-25
+
+### AI 释义优先展示
+
+- 单词卡片默认优先展示已缓存的当前语境 AI 中文释义。
+- 若本地存在该词在此语境下的 AI 缓存，卡片展开即直接呈现，无需等待重新请求。
+- 若无缓存，卡片无缝呈现离线词典本地释义，并在后台发起流式 AI 解析，解析成功后自动替换呈现并持久化缓存。
+
+---
+
 ## 1.1.3 - Safari Personal Edition - 2026-09-25
 
 ### AI 解释

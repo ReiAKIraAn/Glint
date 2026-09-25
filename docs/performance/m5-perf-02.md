@@ -11,7 +11,7 @@
 * **RAM**：64 GB
 * **Power Source**：Connected to AC Power
 * **Node.js**：v22.14.0
-* **Date & Time**：2026-09-25T07:35:00.785Z
+* **Date & Time**：2026-09-25T08:55:31.397Z
 
 ---
 
@@ -42,23 +42,23 @@
 
 | 指标 (Metric) | Baseline | Current (Median) | Current (Max) | Delta (ms) | Delta (%) | 状态 (Status) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **characterData 10** | 4.26 ms | 1.65 ms | 1.73 ms | -2.61 ms | -61.27% | **PASS** |
-| **characterData 50** | 7.4 ms | 3.48 ms | 3.61 ms | -3.92 ms | -52.97% | **PASS** |
-| **characterData 100** | 11.27 ms | 6.63 ms | 6.63 ms | -4.64 ms | -41.17% | **PASS** |
-| **characterData 250** | 33.92 ms | 25.62 ms | 26.84 ms | -8.3 ms | -24.47% | **PASS** |
-| **characterData 500** | 109.36 ms | 92.88 ms | 93.3 ms | -16.48 ms | -15.07% | **PASS** |
-| **characterData 1000** | 468.83 ms | 435.56 ms | 439.5 ms | -33.27 ms | -7.1% | **PASS** |
-| **addedNodes 10** | 4.99 ms | 1.53 ms | 1.63 ms | -3.46 ms | -69.34% | **PASS** |
-| **addedNodes 50** | 9.62 ms | 4.72 ms | 5.32 ms | -4.9 ms | -50.94% | **PASS** |
-| **addedNodes 100** | 19.25 ms | 11.43 ms | 11.61 ms | -7.82 ms | -40.62% | **PASS** |
-| **addedNodes 250** | 68.73 ms | 51.26 ms | 51.39 ms | -17.47 ms | -25.42% | **PASS** |
-| **addedNodes 500** | 189.92 ms | 163.94 ms | 168.57 ms | -25.98 ms | -13.68% | **PASS** |
-| **addedNodes 1000** | 766.95 ms | 709.15 ms | 712.91 ms | -57.8 ms | -7.54% | **PASS** |
-| **Card mean** | 0.7 ms | 0.22 ms | 0.31 ms | -0.48 ms | -68.57% | **PASS** |
-| **Card peak** | 3.45 ms | 1.58 ms | 1.87 ms | -1.87 ms | -54.2% | **PASS** |
-| **AI short stream** | 0.41 ms | 0.19 ms | 0.6 ms | -0.22 ms | -53.66% | **PASS** |
-| **AI long stream** | 0.47 ms | 0.15 ms | 0.24 ms | -0.32 ms | -68.09% | **PASS** |
-| **AI abort** | 0.2 ms | 0.13 ms | 0.28 ms | -0.07 ms | -35% | **PASS** |
+| **characterData 10** | 4.26 ms | 1.74 ms | 1.84 ms | -2.52 ms | -59.15% | **PASS** |
+| **characterData 50** | 7.4 ms | 3.49 ms | 3.59 ms | -3.91 ms | -52.84% | **PASS** |
+| **characterData 100** | 11.27 ms | 6.65 ms | 6.67 ms | -4.62 ms | -40.99% | **PASS** |
+| **characterData 250** | 33.92 ms | 25.15 ms | 25.45 ms | -8.77 ms | -25.85% | **PASS** |
+| **characterData 500** | 109.36 ms | 93.03 ms | 96.3 ms | -16.33 ms | -14.93% | **PASS** |
+| **characterData 1000** | 468.83 ms | 432.31 ms | 433.47 ms | -36.52 ms | -7.79% | **PASS** |
+| **addedNodes 10** | 4.99 ms | 1.64 ms | 1.65 ms | -3.35 ms | -67.13% | **PASS** |
+| **addedNodes 50** | 9.62 ms | 4.84 ms | 5.06 ms | -4.78 ms | -49.69% | **PASS** |
+| **addedNodes 100** | 19.25 ms | 11.83 ms | 12.02 ms | -7.42 ms | -38.55% | **PASS** |
+| **addedNodes 250** | 68.73 ms | 52.69 ms | 52.75 ms | -16.04 ms | -23.34% | **PASS** |
+| **addedNodes 500** | 189.92 ms | 163.33 ms | 166.59 ms | -26.59 ms | -14% | **PASS** |
+| **addedNodes 1000** | 766.95 ms | 703.02 ms | 705.32 ms | -63.93 ms | -8.34% | **PASS** |
+| **Card mean** | 0.7 ms | 0.16 ms | 0.44 ms | -0.54 ms | -77.14% | **PASS** |
+| **Card peak** | 3.45 ms | 0.23 ms | 2.17 ms | -3.22 ms | -93.33% | **PASS** |
+| **AI short stream** | 0.41 ms | 0.14 ms | 0.58 ms | -0.27 ms | -65.85% | **PASS** |
+| **AI long stream** | 0.47 ms | 0.13 ms | 1.87 ms | -0.34 ms | -72.34% | **PASS** |
+| **AI abort** | 0.2 ms | 0.19 ms | 0.33 ms | -0.01 ms | -5% | **PASS** |
 
 ---
 
