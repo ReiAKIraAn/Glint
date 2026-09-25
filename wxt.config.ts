@@ -39,6 +39,13 @@ export default defineConfig({
     // 开一个真有英文正文的页面，一打开就能看到标注效果
     startUrls: ['https://en.wikipedia.org/wiki/Sediment'],
   },
+  /**
+   * 禁用 WXT 开发服务器默认注入的 Alt+R 重载命令（wxt:reload-extension）。
+   * 确保无论在 dev 还是 build 模式下，manifest.commands 均为空，彻底防止 Safari 注册 Shortcuts 页面。
+   */
+  dev: {
+    reloadCommand: false,
+  },
   manifest: ({ browser }) => {
     const isSafari = browser === 'safari';
     return {
