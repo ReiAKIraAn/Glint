@@ -5,7 +5,7 @@ import {
   settingsStore,
   withDefaults,
 } from '@/lib/settings';
-import { getExplanation } from '@/lib/explanation-cache';
+import { getExplanation, putExplanation } from '@/lib/explanation-cache';
 import { collectCodeWords, pruneContainedNodes, scanSubtree, scanTextNode, sentenceAround, type Token } from '@/lib/scan';
 import { applyStyle, clear, isSupported, paint, removeStyle } from '@/lib/highlight';
 import { HoverTracker } from '@/lib/hover';
@@ -130,6 +130,7 @@ export default defineContentScript({
       aiClient: aiStreamClient,
       sentenceOf: (token) => sentenceAround(token),
       getCachedExplanation: (word) => getExplanation(word),
+      putCachedExplanation: (word, explanation) => putExplanation(word, explanation),
       aiReady: async () => canExplain,
       onKnown: async (lemma) => {
         known.add(lemma);

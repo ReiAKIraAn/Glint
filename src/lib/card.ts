@@ -3,6 +3,7 @@ import type { Token } from './scan';
 import { OWN_ELEMENT } from './scan';
 import type { AiStreamClient } from './ai-port';
 import { canSpeak, cancelSpeech, speak } from './speak';
+import { putExplanation } from './explanation-cache';
 
 function createSpeakerSvg(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -42,6 +43,31 @@ export const TAG_LABELS: Record<string, string> = {
   gre: 'GRE',
 };
 
+export interface ResolveCardExplanationParams {
+  localExplanation?: string | null;
+  cachedAIExplanation?: string | null;
+}
+
+/**
+ * 确定卡片应展示的最终释义（纯函数）
+ *
+ * 优先级规范：
+ * 1. AI 缓存存在且非空 -> 返回 AI explanation；
+ * 2. 否则，本地词典存在且非空 -> 返回 local explanation；
+ * 3. 否则 -> 返回空字符串 ''（触发卡片现有的 empty/unavailable 提示状态）。
+ */
+export function resolveCardExplanation(params: ResolveCardExplanationParams): string {
+  const ai = (params.cachedAIExplanation ?? '').trim();
+  if (ai) {
+    return ai;
+  }
+  const local = (params.localExplanation ?? '').trim();
+  if (local) {
+    return local;
+  }
+  return '';
+}
+
 export type AiUiState =
   | { kind: 'idle' }
   | { kind: 'loading'; requestId: string }
@@ -63,6 +89,8 @@ export interface CardDeps {
   aiReady?(): Promise<boolean>;
   /** M5-W2: 本地缓存释义查询 */
   getCachedExplanation?(word: string): Promise<string | null>;
+  /** M5-W15: 写入本地缓存释义 */
+  putCachedExplanation?(word: string, explanation: string): Promise<void>;
   /** 缓存释义 */
   cached?(lemma: string): Explained | null;
   onKnown(lemma: string): void;
@@ -118,6 +146,7 @@ export class Card {
   private token?: Token;
   private rect?: DOMRect;
   private entry: DictEntry | null = null;
+  private cachedAi: string | null = null;
   private epoch = 0;
   private pointerInside = false;
   private below = true;
@@ -266,6 +295,11 @@ export class Card {
     return this.shadow;
   }
 
+  /** 供测试用例检查卡片释义区域 DOM 节点 */
+  get translationElement(): HTMLDivElement {
+    return this.transEl;
+  }
+
   mount() {
     if (!this.host.isConnected) document.body.append(this.host);
     this.host.style.display = 'none';
@@ -284,6 +318,8 @@ export class Card {
     this.abortAi();
     this.resetAiUi();
     this.token = undefined;
+    this.cachedAi = null;
+    this.entry = null;
     this.epoch++; // 作废正在进行的异步查词
     if (this.host.style.display === 'none') return;
     this.box.classList.remove('is-open');
@@ -297,6 +333,7 @@ export class Card {
     if (this.token !== token) {
       this.abortAi();
       this.resetAiUi();
+      this.cachedAi = null;
     }
     this.token = token;
     this.rect = rect;
@@ -349,11 +386,18 @@ export class Card {
     this.position(rect);
     this.box.classList.add('is-open');
 
-    // 5. 异步拉取本地词典数据
-    const entry = await this.deps.lookup(token.lemma);
+    // 5. 异步并行拉取本地词典数据与 AI 缓存
+    const lookupKey = token.lemma || token.surface;
+    const [entry, cachedAi] = await Promise.all([
+      this.deps.lookup(token.lemma),
+      this.deps.getCachedExplanation
+        ? this.deps.getCachedExplanation(lookupKey).catch(() => null)
+        : Promise.resolve(null),
+    ]);
     if (epoch !== this.epoch) return;
 
     this.entry = entry;
+    this.cachedAi = cachedAi && cachedAi.trim() ? cachedAi.trim() : null;
     this.renderEntry(entry);
 
     // 词典数据填充后高度可能变化，平滑重定位一次
@@ -402,8 +446,11 @@ export class Card {
       try {
         const cached = await this.deps.getCachedExplanation(lookupKey);
         if (this.token !== token) return;
-        if (cached) {
-          this.aiState = { kind: 'done', requestId: 'cached', text: cached };
+        if (cached && cached.trim()) {
+          const trimmed = cached.trim();
+          this.cachedAi = trimmed;
+          this.renderExplanation(trimmed);
+          this.aiState = { kind: 'done', requestId: 'cached', text: trimmed };
           this.aiExplainBtn.hidden = true;
           this.aiCancelBtn.hidden = true;
           this.aiStatusEl.hidden = true;
@@ -411,7 +458,7 @@ export class Card {
           this.aiErrorEl.hidden = true;
           this.aiErrorEl.textContent = '';
           this.aiTextEl.hidden = false;
-          this.aiTextEl.textContent = cached;
+          this.aiTextEl.textContent = trimmed;
           if (this.rect) this.position(this.rect);
           return;
         }
@@ -451,7 +498,7 @@ export class Card {
           this.pendingAiText += text;
           this.scheduleAiRender();
         },
-        onDone: () => {
+        onDone: async () => {
           if (this.aiState.kind !== 'loading' && this.aiState.kind !== 'streaming') return;
           if (this.aiState.requestId !== requestId) return;
           this.flushAiRender();
@@ -459,6 +506,19 @@ export class Card {
           this.aiState = { kind: 'done', requestId, text: finalText };
           this.aiCancelBtn.hidden = true;
           this.aiStatusEl.hidden = true;
+
+          const trimmed = finalText.trim();
+          if (trimmed) {
+            this.cachedAi = trimmed;
+            this.renderExplanation(trimmed);
+            const putCache = this.deps.putCachedExplanation ?? putExplanation;
+            try {
+              await putCache(lookupKey, trimmed);
+            } catch (err) {
+              console.warn('[Glint] Failed to save AI explanation cache:', err);
+            }
+          }
+
           if (this.rect) this.position(this.rect);
         },
         onError: (_code: string, message: string) => {
@@ -581,10 +641,22 @@ export class Card {
       this.tagsEl.hidden = true;
     }
 
+    this.renderExplanation();
+  }
+
+  private renderExplanation(overrideText?: string) {
+    const explanation =
+      overrideText !== undefined
+        ? overrideText
+        : resolveCardExplanation({
+            localExplanation: this.entry?.translation,
+            cachedAIExplanation: this.cachedAi,
+          });
+
     this.transEl.replaceChildren();
-    if (entry?.translation) {
+    if (explanation) {
       this.transEl.className = 'zh';
-      const lines = entry.translation.split('\n').filter((l) => l.trim());
+      const lines = explanation.split('\n').filter((l) => l.trim());
       for (const line of lines) {
         const div = document.createElement('div');
         div.textContent = line;
