@@ -11,10 +11,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/whyubel1eve/glint.git"
+    "url": "git+https://github.com/ReiAKIraAn/Glint.git"
   },
-  "homepage": "https://github.com/whyubel1eve/glint#readme",
-  "bugs": "https://github.com/whyubel1eve/glint/issues",
+  "homepage": "https://github.com/ReiAKIraAn/Glint#readme",
+  "bugs": "https://github.com/ReiAKIraAn/Glint/issues",
   "scripts": {
     "data": "tsx scripts/build-data.ts",
     "icons": "tsx scripts/build-icons.ts",

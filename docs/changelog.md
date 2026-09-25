@@ -4,7 +4,54 @@
 
 ---
 
-## [Unreleased] - Safari Personal Edition 重构开发中
+## [1.1.1] - Safari Personal Edition - 2026-09-25
+
+### Release Highlights (版本核心特性与闭环总结)
+- **外观与标注样式**: 新增第四种「文字变色」标注样式（`color`），纯文字着色无下划线或底色，完整保留宿主版面样式。
+- **AI Provider 架构收敛**: 核心 Provider 收敛为 **OpenAI**、**DeepSeek** 与 **自定义接口（Custom API）** 3 家；彻底移除 Anthropic runtime adapter 及相关 SDK 依赖。
+- **Custom API 强化与 Extra Body**: 自定义接口支持标准 OpenAI 兼容 Chat Completions 协议；支持免 Key（keyless）与自填 Key 模式；新增「额外请求体（JSON）」配置项，默认值为 `{"thinking_mode": false}`。
+- **API Key 隔离安全**: 所有服务商 API Key 严格保持 background-only 单向隔离，绝不暴露至 content-script 或持久化至网页上下文。
+- **UI Surface 闭环清理**:
+  - 彻底删除设置页中已废弃的 Anki 导出 UI（`#exportAnki` 与 `#ankiNote`）；
+  - 从 `wxt.config.ts` 清单中移除 Safari 快捷键 `commands`（`next-word`, `prev-word`），消除系统热键冲突；
+  - 清理设置页中未使用的历史 Provider 图标死代码（Anthropic、Gemini、Ollama 等）；
+  - 达成 UI / Runtime / Manifest / Documentation consistency closure（用户界面、运行时、清单与文档四位一体严格对齐）。
+
+### Known Limitations (已知边界与限制说明)
+- **External Provider 网络验证边界**: OpenAI / DeepSeek / Custom API 的真实外部网络请求在本次环境中未使用真实 API Key 完成验证（协议构建、请求头规范、流式解包与错误映射由 Mock 测试集 100% 验证）。
+- **DOM 扫描极端回退**: 当单批次 Mutation 超过 250 条记录时（mutation storm >250 records），仍可能触发整页回退全量扫描并产生较高计算成本。
+- **WebKit 慢流生命周期**: Safari MV3 slow stream 生命周期风险仍保留（由应用层 60s 超时兜底，坚决不引入伪造心跳 hack）。
+- **DOM 边界隔离**: 第三方网页的 Shadow DOM 与 `<iframe>` 严格保持 opaque，TreeWalker 绝不穿透网页 ShadowRoot。
+- **性能基准度量边界**: formal Long Task / JSC heap / GC automation 未建立。
+- **实机运行环境说明**: 当前实际 Safari 验证环境为 STP Release 253 / macOS 27.2；该版本是否为 Apple 当前发布的最新 STP 版本保持为 `UNVERIFIED`，不得写成“Release 253 是当前最新 STP”。
+
+### Phase 20: Milestone 5 / Workstream 12 — UI Feature Surface 闭环与一致性审计 (UI Feature Surface Closure & Consistency Review) - 2026-09-25
+- **虚假 UI 与死代码清理 (`src/entrypoints/options/`, `wxt.config.ts`, `src/entrypoints/background.ts`)**:
+  - 彻底移除 `options/index.html` 中的 `#exportAnki` 按钮与 `#ankiNote` 提示文本；移除 `main.ts` 中的 `toAnkiTSV` 依赖、点击监听与 Options 内的 `loadDict()`。
+  - 从 `wxt.config.ts` 剥离 `manifest.commands` (`next-word`, `prev-word`)，同步清除 `background.ts` 中的 `browser.commands?.onCommand` 监听。
+  - 清理 `options/main.ts` 中 9 个废弃图标的静态导入，`ICONS` 仅保留 `openai` 与 `deepseek-color`，`custom` 采用内置 `PLUG_ICON`。
+- **文档与元数据对齐 (`README.md`, `PRIVACY.md`)**:
+  - 修正 `README.md`，删除 Anki 导出、11 家 Provider 描述与 `chrome://extensions/shortcuts` 改键说明，更新为 Safari MV3 构建与使用规范。
+  - 修正 `PRIVACY.md`，明确 AI 释义缓存仅存储单词原型与纯文本释义，绝不持久化任何网页原文句子或上下文。
+- **专项测试与一致性审查 (`tests/ui-surface.test.ts`, `docs/ui-feature-surface-final-review.md`)**:
+  - 新增 `UI-ANKI-01`、`UI-PROVIDER-01`、`UI-SHORTCUT-01` 与 `UI-MIGRATION-01` 4 项自动化回归测试。
+  - 全量 412/412 项测试 100% 通过，Safari MV3 构建零错误。
+
+### Phase 19: Milestone 5 / Workstream 11.1 — Custom API Keyless 状态收敛与依赖清理 (Keyless Status & Cleanup) - 2026-09-25
+- **Custom API Keyless 状态规范化 (`src/lib/types.ts`)**:
+  - 调整 `isConfigured` 逻辑：当 Provider 为 `custom` 时，若具备合法 Base URL 与 Model，即使无 API Key 亦判定为就绪（`isConfigured === true`）。
+  - 新增 `CONFIG-CUSTOM-KEYLESS-01..03` 与 `CONFIG-OPENAI-DEEPSEEK-KEY-REQUIRED` 自动化测试。
+- **废弃依赖彻底清理 (`package.json`, `pnpm-lock.yaml`)**:
+  - 移除 `@ai-sdk/anthropic` 与 `@ai-sdk/google` 依赖，释放包体积并消除潜在安全漏洞。
+
+### Phase 18: Milestone 5 / Workstream 11 — AI Provider 体系重构：OpenAI、DeepSeek 与 Custom API (AI Provider Modernization) - 2026-09-25
+- **Provider 体系收敛 (`src/lib/providers/`, `src/lib/types.ts`)**:
+  - 实现 `OpenAIAdapter`、`DeepSeekAdapter` 与 `CustomAdapter`，统一基于 OpenAI Chat Completions 协议规范与 SSE 流式解包。
+  - 注册表严格收敛为 `openai`、`deepseek`、`custom`；彻底移除 `AnthropicAdapter` 及其静态注册。
+  - 设置自动平滑迁移：历史 `anthropic` 安全降级为默认 `openai`，历史 `compatible` 平滑迁移至 `custom`。
+- **自定义接口 Extra Body 扩展 (`src/lib/providers/extra-body.ts`)**:
+  - 新增 `customExtraBody` 设置字段，默认值为 `JSON.stringify({ thinking_mode: false }, null, 2)`。
+  - 增加严格的 JSON Object 校验器 `parseAndValidateExtraBody`，在前端与请求构建时阻止数组或非法 JSON。
 
 ### Phase 17: Milestone 5 / Workstream 10 — 新增「文字变色」标注样式 (Text Color Annotation Style) - 2026-09-25
 - **功能特性 (`src/lib/types.ts`, `src/lib/highlight.ts`, `src/entrypoints/options/`)**:
