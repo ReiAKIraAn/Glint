@@ -2,10 +2,10 @@
 
 > 阅读英文网页时，按你的英语水平把生词标注出来。鼠标停在单词上，即可查阅本地离线词典释义；配合 AI 大模型，精准解析单词在**当前句子**中的具体语境含义。
 
-[![Version](https://img.shields.io/badge/version-1.1.2-blue.svg)](https://github.com/ReiAKIraAn/Glint/releases)
+[![Version](https://img.shields.io/badge/version-1.1.3-blue.svg)](https://github.com/ReiAKIraAn/Glint/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%20Safari-orange.svg)](https://github.com/ReiAKIraAn/Glint)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-417%20passed-brightgreen.svg)](https://github.com/ReiAKIraAn/Glint)
+[![Tests](https://img.shields.io/badge/tests-433%20passed-brightgreen.svg)](https://github.com/ReiAKIraAn/Glint)
 
 ---
 
@@ -44,13 +44,13 @@
 
 **Glint (Safari Personal Edition)** 是一款面向 macOS 桌面平台 Safari 浏览器量身打造的英文阅读辅助扩展。
 
-不同于传统划词翻译工具，Glint 在网页加载后利用原生 WebKit 技术静默分词，根据用户的实际词汇储备自动将超出水平的生词高亮标出。鼠标悬浮于生词上即可展开简洁优雅的浮层卡片，不仅能够秒级查阅内置的离线词库（音标、考试标签、中文释义），还能直接调用大语言模型对该词在**当前段落原句中的具体义项、语法细节及双语例句**进行单句深度剖析。
+不同于传统划词翻译工具，Glint 在网页加载后利用原生 WebKit 技术静默分词，根据用户的实际词汇储备自动将超出水平的生词高亮标出。鼠标悬浮于生词上即可展开简洁优雅的浮层卡片，不仅能够秒级查阅内置的离线词库（音标、考试标签、中文释义），还能直接调用大语言模型对该词在**当前句子**中的精准中文含义进行流式解析。
 
 ---
 
 ## 版本与定位
 
-* **当前版本**：`1.1.2` (Git Tag: `v1.1.2-safari-personal`)
+* **当前版本**：`1.1.3` (Git Tag: `v1.1.3-safari-personal`)
 * **正式仓库**：[https://github.com/ReiAKIraAn/Glint](https://github.com/ReiAKIraAn/Glint)
 * **版本定位**：
   * **Safari-First 专属个人版**：专为 macOS 用户长期日常自用优化，彻底剥离 Chrome/Firefox 等多端跨浏览器套壳包袱与臃肿历史依赖；
@@ -106,13 +106,8 @@
 * **生命周期协同**：卡片隐藏或页面卸载时自动切断语音输出，保持体验利落。
 
 ### 6. AI 语境释义与流式输出
-* **单句语境深度剖析**：不机械列举词典全部义项，大模型仅对该词在**当前句子**中的确切含义进行解释；
-* **结构化内容呈现**：
-  * `sense`：该词在当前句中的精准中文含义（一句话）；
-  * `en`：对应的简明英文释义；
-  * `note`：构词法、固定搭配或易混近义词点拨；
-  * `sentenceZh`：所在上下文句子的完整中文翻译；
-  * `example` / `exampleZh`：原汁原味的新例句及其对照翻译；
+* **单句语境精准释义**：不机械列举词典全部义项，大模型根据**当前句子**判断单词在此语境下的确切中文含义；
+* **极简纯净呈现**：仅输出当前语境下的中文释义本身，杜绝英文长篇定义、词性、例句与 Markdown 格式干扰，减少阅读打断；
 * **Server-Sent Events (SSE) 逐字流式打字机**：后台与内容脚本之间建立长连接通道（`AiPortClient`），释义逐字流式打出，大幅缩短首字等待时间。
 
 ### 7. 请求取消与本地缓存
@@ -338,10 +333,11 @@ glint/
 ## Git 分支与版本规划
 
 * **主工作与发布分支**：`safari-personal`
-* **版本标签规范**：`v<version>-safari-personal`（例如 `v1.1.1-safari-personal`、`v1.1.2-safari-personal`）
+* **版本标签规范**：`v<version>-safari-personal`（例如 `v1.1.1-safari-personal`、`v1.1.2-safari-personal`、`v1.1.3-safari-personal`）
 * **版本演进**：
   * `v1.1.1-safari-personal`：完成 Provider 架构收敛、Custom API 无 Key 与 Extra Body 支持、CSS 文字颜色高亮支持、Anki UI 移除及历史基线确立；
-  * `v1.1.2-safari-personal`：完成 Safari 扩展 Shortcuts 残留来源彻底切断、禁用 WXT 自动 reload command、全面清理 X/Twitter 社交入口、统一 GitHub 官方链接，并完善全中文工程技术文档。
+  * `v1.1.2-safari-personal`：完成 Safari 扩展 Shortcuts 残留来源彻底切断、禁用 WXT 自动 reload command、全面清理 X/Twitter 社交入口、统一 GitHub 官方链接，并完善全中文工程技术文档；
+  * `v1.1.3-safari-personal`：AI 解释精简为仅显示当前语境下的中文释义，统一三家 Provider 提示词，移除英文长释义与格式干扰，修复权限用户手势问题。
 
 ---
 

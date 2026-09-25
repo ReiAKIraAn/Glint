@@ -5,4 +5,5 @@ export * from './openai-stream-helper';
 export * from './openai-adapter';
 export * from './deepseek-adapter';
 export * from './custom-adapter';
+export * from './prompt';
 export * from './registry';

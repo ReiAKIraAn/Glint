@@ -4,6 +4,31 @@
 
 ---
 
+## 1.1.3 - Safari Personal Edition - 2026-09-25
+
+### AI 解释
+
+- AI 解释改为仅返回当前语境下的中文单词释义。
+- 移除默认的英文长篇解释、例句、词性和 Markdown 格式要求。
+- OpenAI、DeepSeek、Custom 三个 Provider 统一使用同一套 AI 释义 Prompt。
+- 保留原有 AI 流式输出、取消、缓存和 requestId 生命周期机制。
+- 不修改 AI Cache 数据结构。
+- 增加 Prompt Injection 回归测试，网页句子中的指令不会覆盖释义规则。
+
+### 稳定性
+
+- 新增 AI 中文短释义相关自动化测试。
+- 保持 Safari MV3 权限范围不变。
+- 保持 API Key 隔离和现有安全边界不变。
+
+### 已知限制
+
+- AI 最终输出仍由外部模型决定，Prompt 无法保证所有模型在所有语境下绝对只返回一个固定格式。
+- 本版本没有增加前端正则截断，因此不会强制删除模型可能返回的额外内容。
+- Safari Technology Preview 的具体兼容性仍取决于当前 WebKit 版本。
+
+---
+
 ## [1.1.1] - Safari Personal Edition - 2026-09-25
 
 ### Release Highlights (版本核心特性与闭环总结)

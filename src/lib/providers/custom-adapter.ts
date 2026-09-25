@@ -1,6 +1,7 @@
 import { ProviderError } from './errors';
 import { mergeRequestBody } from './extra-body';
 import { listOpenAIModels, streamOpenAICompatible } from './openai-stream-helper';
+import { buildProviderMessages } from './prompt';
 import type { ModelList } from '../types';
 import type {
   ProviderAdapter,
@@ -8,9 +9,6 @@ import type {
   ProviderStreamContext,
   ProviderStreamPayload,
 } from './types';
-
-const SYSTEM_PROMPT =
-  'You are an English language tutor. Explain the target word in the given context sentence clearly and concisely.';
 
 export function resolveCustomEndpoints(rawBaseURL?: string): {
   chatUrl: string;
@@ -58,18 +56,7 @@ export class CustomAdapter implements ProviderAdapter {
       model: model || (ctx.extraBody?.model as string) || '',
       stream: true,
       max_tokens: 1024,
-      messages: [
-        {
-          role: 'system',
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: 'user',
-          content: payload.sentence
-            ? `Explain the word "${payload.word}" (lemma: "${payload.lemma || payload.word}") in this sentence: "${payload.sentence}".`
-            : `Explain the word "${payload.word}".`,
-        },
-      ],
+      messages: buildProviderMessages(payload),
     };
 
     const body = mergeRequestBody(baseSystemFields, ctx.extraBody);

@@ -1,5 +1,6 @@
 import { ProviderError } from './errors';
 import { listOpenAIModels, streamOpenAICompatible } from './openai-stream-helper';
+import { buildProviderMessages } from './prompt';
 import type { ModelList } from '../types';
 import type {
   ProviderAdapter,
@@ -7,9 +8,6 @@ import type {
   ProviderStreamContext,
   ProviderStreamPayload,
 } from './types';
-
-const SYSTEM_PROMPT =
-  'You are an English language tutor. Explain the target word in the given context sentence clearly and concisely.';
 
 export class OpenAIAdapter implements ProviderAdapter {
   readonly id = 'openai' as const;
@@ -33,18 +31,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       model,
       stream: true,
       max_tokens: 1024,
-      messages: [
-        {
-          role: 'system',
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: 'user',
-          content: payload.sentence
-            ? `Explain the word "${payload.word}" (lemma: "${payload.lemma || payload.word}") in this sentence: "${payload.sentence}".`
-            : `Explain the word "${payload.word}".`,
-        },
-      ],
+      messages: buildProviderMessages(payload),
     };
 
     await streamOpenAICompatible(url, headers, body, ctx, { providerName: 'OpenAI' });
