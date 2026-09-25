@@ -30,6 +30,27 @@ function createSpeakerSvg(): SVGSVGElement {
   return svg;
 }
 
+function createRedoSvg(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.5');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p1.setAttribute('d', 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9L14 6');
+
+  const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p2.setAttribute('d', 'M14 2.5V6h-3.5');
+
+  svg.append(p1, p2);
+  return svg;
+}
+
+
 
 /** ECDICT 的考试标签，展示成人话。 */
 export const TAG_LABELS: Record<string, string> = {
@@ -132,6 +153,7 @@ export class Card {
   private aiSectionEl: HTMLDivElement;
   private aiActionsEl: HTMLDivElement;
   private aiExplainBtn: HTMLButtonElement;
+  private aiRedoBtn: HTMLButtonElement;
   private aiCancelBtn: HTMLButtonElement;
   private aiStatusEl: HTMLDivElement;
   private aiTextEl: HTMLDivElement;
@@ -218,6 +240,15 @@ export class Card {
     this.aiExplainBtn.setAttribute('aria-label', 'AI 语境释义');
     this.aiExplainBtn.textContent = '✨ AI 解释';
 
+    this.aiRedoBtn = document.createElement('button');
+    this.aiRedoBtn.type = 'button';
+    this.aiRedoBtn.className = 'ai-btn ai-redo-btn';
+    this.aiRedoBtn.dataset.act = 'ai-redo';
+    this.aiRedoBtn.setAttribute('aria-label', '重新生成 AI 释义');
+    this.aiRedoBtn.title = '重新生成';
+    this.aiRedoBtn.hidden = true;
+    this.aiRedoBtn.append(createRedoSvg());
+
     this.aiCancelBtn = document.createElement('button');
     this.aiCancelBtn.type = 'button';
     this.aiCancelBtn.className = 'ai-btn ai-cancel-btn';
@@ -226,7 +257,7 @@ export class Card {
     this.aiCancelBtn.textContent = '取消';
     this.aiCancelBtn.hidden = true;
 
-    this.aiActionsEl.append(this.aiExplainBtn, this.aiCancelBtn);
+    this.aiActionsEl.append(this.aiExplainBtn, this.aiRedoBtn, this.aiCancelBtn);
 
     this.aiStatusEl = document.createElement('div');
     this.aiStatusEl.className = 'ai-status';
@@ -373,6 +404,7 @@ export class Card {
     this.aiSectionEl.hidden = !this.deps.aiClient;
     if (this.aiState.kind === 'idle') {
       this.aiExplainBtn.hidden = false;
+      this.aiRedoBtn.hidden = true;
       this.aiCancelBtn.hidden = true;
       this.aiStatusEl.hidden = true;
       this.aiTextEl.hidden = true;
@@ -400,6 +432,16 @@ export class Card {
     this.cachedAi = cachedAi && cachedAi.trim() ? cachedAi.trim() : null;
     this.renderEntry(entry);
 
+    if (this.aiState.kind === 'idle') {
+      if (this.cachedAi) {
+        this.aiExplainBtn.hidden = true;
+        this.aiRedoBtn.hidden = false;
+      } else {
+        this.aiExplainBtn.hidden = false;
+        this.aiRedoBtn.hidden = true;
+      }
+    }
+
     // 词典数据填充后高度可能变化，平滑重定位一次
     if (this.rect) this.position(this.rect);
   }
@@ -412,8 +454,16 @@ export class Card {
     return this.aiExplainBtn;
   }
 
+  get aiRedoButton(): HTMLButtonElement {
+    return this.aiRedoBtn;
+  }
+
   get aiCancelButton(): HTMLButtonElement {
     return this.aiCancelBtn;
+  }
+
+  async redoAi(): Promise<void> {
+    return this.startAi({ bypassCache: true });
   }
 
   get aiStatusElement(): HTMLDivElement {
@@ -428,7 +478,7 @@ export class Card {
     return this.aiErrorEl;
   }
 
-  async startAi() {
+  async startAi(opts?: { bypassCache?: boolean }) {
     if (!this.token) return;
     if (!this.deps.aiClient) return;
 
@@ -442,7 +492,7 @@ export class Card {
 
     // M5-W2: Cache Read
     // 优先本地缓存，若命中则立即显示并切换至 done 态，坚决不发送 AI_START
-    if (this.deps.getCachedExplanation) {
+    if (!opts?.bypassCache && this.deps.getCachedExplanation) {
       try {
         const cached = await this.deps.getCachedExplanation(lookupKey);
         if (this.token !== token) return;
@@ -452,6 +502,7 @@ export class Card {
           this.renderExplanation(trimmed);
           this.aiState = { kind: 'done', requestId: 'cached', text: trimmed };
           this.aiExplainBtn.hidden = true;
+          this.aiRedoBtn.hidden = false;
           this.aiCancelBtn.hidden = true;
           this.aiStatusEl.hidden = true;
           this.aiStatusEl.textContent = '';
@@ -472,6 +523,7 @@ export class Card {
 
     // 清除上一轮 AI 内容并切换至 loading
     this.aiExplainBtn.hidden = true;
+    this.aiRedoBtn.hidden = true;
     this.aiCancelBtn.hidden = false;
     this.aiStatusEl.hidden = false;
     this.aiStatusEl.textContent = 'AI 正在分析语境...';
@@ -517,6 +569,19 @@ export class Card {
             } catch (err) {
               console.warn('[Glint] Failed to save AI explanation cache:', err);
             }
+            this.aiRedoBtn.hidden = false;
+            this.aiExplainBtn.hidden = true;
+          } else {
+            // 空白输出视作失败：恢复先前释义，旧缓存保持不变
+            this.renderExplanation(this.cachedAi ?? undefined);
+            if (this.cachedAi) {
+              this.aiRedoBtn.hidden = false;
+              this.aiExplainBtn.hidden = true;
+            } else {
+              this.aiRedoBtn.hidden = true;
+              this.aiExplainBtn.hidden = false;
+              this.aiExplainBtn.textContent = '重试 AI 解释';
+            }
           }
 
           if (this.rect) this.position(this.rect);
@@ -531,8 +596,18 @@ export class Card {
           this.aiStatusEl.hidden = true;
           this.aiErrorEl.hidden = false;
           this.aiErrorEl.textContent = message;
-          this.aiExplainBtn.hidden = false;
-          this.aiExplainBtn.textContent = '重试 AI 解释';
+
+          // 恢复旧释义（Redo 前的 AI 释义，或若无则恢复本地词典）
+          this.renderExplanation(this.cachedAi ?? undefined);
+
+          if (this.cachedAi) {
+            this.aiRedoBtn.hidden = false;
+            this.aiExplainBtn.hidden = true;
+          } else {
+            this.aiRedoBtn.hidden = true;
+            this.aiExplainBtn.hidden = false;
+            this.aiExplainBtn.textContent = '重试 AI 解释';
+          }
           if (this.rect) this.position(this.rect);
         },
       },
@@ -553,8 +628,18 @@ export class Card {
       this.aiCancelBtn.hidden = true;
       this.aiStatusEl.hidden = false;
       this.aiStatusEl.textContent = '（已取消）';
-      this.aiExplainBtn.hidden = false;
-      this.aiExplainBtn.textContent = textSoFar ? '重新解释' : '✨ AI 解释';
+
+      // 恢复旧释义（Redo 前的 AI 释义，或若无则恢复本地词典）
+      this.renderExplanation(this.cachedAi ?? undefined);
+
+      if (this.cachedAi) {
+        this.aiRedoBtn.hidden = false;
+        this.aiExplainBtn.hidden = true;
+      } else {
+        this.aiRedoBtn.hidden = true;
+        this.aiExplainBtn.hidden = false;
+        this.aiExplainBtn.textContent = textSoFar ? '重新解释' : '✨ AI 解释';
+      }
       if (this.rect) this.position(this.rect);
     }
   }
@@ -564,6 +649,7 @@ export class Card {
     this.aiState = { kind: 'idle' };
     this.aiExplainBtn.hidden = false;
     this.aiExplainBtn.textContent = '✨ AI 解释';
+    this.aiRedoBtn.hidden = true;
     this.aiCancelBtn.hidden = true;
     this.aiStatusEl.hidden = true;
     this.aiStatusEl.textContent = '';
@@ -705,6 +791,8 @@ export class Card {
       speak(this.token.surface);
     } else if (action === 'ai-explain') {
       this.startAi();
+    } else if (action === 'ai-redo') {
+      this.redoAi();
     } else if (action === 'ai-cancel') {
       this.abortAi();
     }
@@ -906,6 +994,23 @@ const CSS_TEXT = `
 .ai-btn.ai-cancel-btn:hover {
   color: var(--fg);
   background: var(--soft);
+}
+
+.ai-btn.ai-redo-btn {
+  padding: 4px 7px;
+  min-width: 26px;
+  min-height: 24px;
+  color: var(--muted);
+}
+
+.ai-btn.ai-redo-btn:hover {
+  color: var(--fg);
+}
+
+.ai-btn.ai-redo-btn svg {
+  width: 13px;
+  height: 13px;
+  display: block;
 }
 
 .ai-status {
