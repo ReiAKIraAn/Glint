@@ -28,8 +28,10 @@ import type { ExplanationCacheEntry } from '@/lib/types';
 import { apiKeysStore } from '@/lib/keys';
 import { safeErrorMessage } from '@/lib/security';
 import {
+  executeSaveWorkflow,
   hasHostPermission,
   originForProvider,
+  overrideBaseURLForProvider,
   requestHostPermission,
   revokeHostPermission,
 } from '@/lib/permissions';
@@ -462,10 +464,7 @@ fields.baseURL.addEventListener('change', () => {
  * 他手里那份「覆盖」会一直盖着。
  */
 function overrideBaseURL(url: string): Settings['baseURLs'] {
-  const next = { ...settings.baseURLs };
-  if (url && url !== PROVIDERS[settings.provider].baseURL) next[settings.provider] = url;
-  else delete next[settings.provider];
-  return next;
+  return overrideBaseURLForProvider(settings.baseURLs, settings.provider, url);
 }
 
 // 模型名是随手改的输入框，失焦或回车再落盘；空着就退回这家的默认值
@@ -502,46 +501,39 @@ fields.apiKey.addEventListener('blur', () => {
 
 $('saveKey').addEventListener('click', async () => {
   const provider = settings.provider;
-  const spec = PROVIDERS[provider];
-  // 原封不动的圆点 = 没打算换 Key，这次保存只落地址那些
-  const typed = fields.apiKey.value.trim();
-  const key = typed === KEY_MASK ? '' : typed;
-  if (!key && !spec.keyless && !savedKeys[provider]) return setKeyStatus('先粘贴一个 Key', 'bad');
+  const result = await executeSaveWorkflow(
+    {
+      provider,
+      apiKey: fields.apiKey.value,
+      baseURL: fields.baseURL.value,
+      extraBody: fields.extraBody.value,
+      savedKeys,
+      currentSettings: settings,
+    },
+    {
+      requestPermission: (origin) => requestHostPermission(origin),
+      saveSettings: async (changes) => {
+        await patch(changes);
+      },
+      saveApiKey: async (p, key) => {
+        await apiKeysStore.setValue({ ...(await apiKeysStore.getValue()), [p]: key });
+        savedKeys = { ...savedKeys, [p]: true };
+      },
+    },
+  );
 
-  /**
-   * 权限要在任何 await 之前要。
-   *
-   * Chrome 只在用户手势里放行 permissions.request()，中间夹一次 await（哪怕只是写一次
-   * 存储）手势就没了，调用直接抛异常。
-   */
-  const baseURL = fields.baseURL.value.trim();
-  const origin = originForProvider(settings, provider);
-  if (spec.kind === 'custom') {
-    const rawExtra = fields.extraBody.value.trim();
-    const parsed = parseAndValidateExtraBody(rawExtra);
-    if (!parsed.ok) {
-      $('extraBodyNote').textContent = parsed.error;
+  if (!result.ok) {
+    if (result.field === 'extraBody') {
+      $('extraBodyNote').textContent = result.error;
       $('extraBodyNote').dataset.tone = 'bad';
-      return setKeyStatus(parsed.error, 'bad');
     }
-    await patch({ customExtraBody: rawExtra });
-
-    if (!baseURL) return setKeyStatus('先填接口地址', 'bad');
-    const granted = await grantHost(baseURL);
-    if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
-    await patch({ baseURLs: overrideBaseURL(baseURL) });
-  } else if (origin) {
-    const hasPerm = await hasHostPermission(origin);
-    if (!hasPerm) {
-      const granted = await requestHostPermission(origin);
-      if (!granted.ok) return setKeyStatus(granted.error ?? '没拿到访问这个域的权限', 'bad');
-    }
+    return setKeyStatus(result.error, 'bad');
   }
 
-  if (key) {
-    await apiKeysStore.setValue({ ...(await apiKeysStore.getValue()), [provider]: key });
-    savedKeys = { ...savedKeys, [provider]: true };
-  }
+  // 清除可能残留的 extraBody 错误提示
+  $('extraBodyNote').textContent = '额外请求体会直接合并到 API 请求中，不同接口支持的字段可能不同。';
+  delete $('extraBodyNote').dataset.tone;
+
   fields.apiKey.value = savedKeys[provider] ? KEY_MASK : '';
   paintProvider();
   setKeyStatus('已保存', 'ok');
@@ -650,42 +642,16 @@ fields.modelPick.addEventListener('change', () => {
 $('fetchModels').addEventListener('click', async () => {
   const origin = originForProvider(settings, settings.provider);
   if (origin) {
-    const has = await hasHostPermission(origin);
-    if (!has) {
-      const granted = await requestHostPermission(origin);
-      if (!granted.ok) {
-        const note = $('modelNote');
-        note.textContent = granted.error ?? '未授予网络访问权限';
-        note.dataset.tone = 'bad';
-        return;
-      }
+    const granted = await requestHostPermission(origin);
+    if (!granted.ok) {
+      const note = $('modelNote');
+      note.textContent = granted.error ?? '未授予网络访问权限';
+      note.dataset.tone = 'bad';
+      return;
     }
   }
   void loadModels();
 });
-
-/**
- * 自定义接口的域名事先不知道，所以只能作为可选权限在保存时现要。
- * 必须挂在点击里——浏览器只在用户手势里才弹这个授权框。
- */
-/** 本机的几种写法。这些走 http 没问题——请求根本不出这台机器。 */
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-
-async function grantHost(baseURL: string): Promise<{ ok: boolean; error?: string }> {
-  let url: URL;
-  try {
-    url = new URL(baseURL);
-  } catch {
-    return { ok: false, error: '接口地址不是合法 URL' };
-  }
-
-  if (url.protocol !== 'https:' && !LOCAL_HOSTS.has(url.hostname)) {
-    return { ok: false, error: '非本机地址请用 https——http 会把 API Key 明文发出去' };
-  }
-
-  const origin = `${url.origin}/*`;
-  return requestHostPermission(origin);
-}
 
 // ---------------------------------------------------------------- 我的词
 
