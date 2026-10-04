@@ -93,7 +93,6 @@ const fields = {
   targetExam: $<HTMLSelectElement>('targetExam'),
   enabled: $<HTMLInputElement>('enabled'),
   oncePerPage: $<HTMLInputElement>('oncePerPage'),
-  markUnknown: $<HTMLInputElement>('markUnknown'),
   aiEnabled: $<HTMLInputElement>('aiEnabled'),
   model: $<HTMLInputElement>('model'),
   modelList: $<HTMLDataListElement>('modelList'),
@@ -138,7 +137,6 @@ function paintForm() {
   fields.targetExam.value = settings.targetExam;
   fields.enabled.checked = settings.enabled;
   fields.oncePerPage.checked = settings.oncePerPage;
-  fields.markUnknown.checked = settings.markUnknown;
   fields.aiEnabled.checked = settings.aiEnabled;
   fields.effort.value = settings.effort;
   fields.extraBody.value = settings.customExtraBody || DEFAULT_EXTRA_BODY_STRING;
@@ -413,7 +411,6 @@ function describe(count: number, canExplain: boolean): string {
   const parts = [`这两段共 ${count} 个词会被标出来`];
   if (settings.passedExam) parts.push(`已减去${EXAM_NAMES[settings.passedExam]}及以下考纲`);
   if (settings.targetExam) parts.push(`已限定在${TARGET_NAMES[settings.targetExam]}词表内`);
-  if (settings.markUnknown && !canExplain) parts.push('词库外的生僻词暂不标（没 Key 解释不了）');
   parts.push('把鼠标停在标注的词上试试');
   return parts.join('，') + '。';
 }
@@ -441,7 +438,6 @@ fields.targetExam.addEventListener('change', async () => {
 for (const [el, key] of [
   [fields.enabled, 'enabled'],
   [fields.oncePerPage, 'oncePerPage'],
-  [fields.markUnknown, 'markUnknown'],
   [fields.aiEnabled, 'aiEnabled'],
 ] as const) {
   el.addEventListener('change', async () => {

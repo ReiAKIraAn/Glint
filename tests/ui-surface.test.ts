@@ -120,3 +120,23 @@ test('UI-MIGRATION-02: 历史 upstream GitHub references 作为历史事实在 d
   const docsReq = fs.readFileSync(path.join(ROOT_DIR, 'docs/requirements.md'), 'utf8');
   assert.ok(docsReq.includes('whyubel1eve/glint'), 'docs/requirements.md 应保留历史参考源事实');
 });
+
+test('UI-RARE-WORD-01: Options 页面彻底移除未实现的生僻词标注 UI 选项与无效描述', () => {
+  const htmlPath = path.join(ROOT_DIR, 'src/entrypoints/options/index.html');
+  const mainPath = path.join(ROOT_DIR, 'src/entrypoints/options/main.ts');
+
+  const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+  const mainContent = fs.readFileSync(mainPath, 'utf8');
+
+  // HTML 中严禁出现 markUnknown 与相关无效 UI 文案
+  assert.strictEqual(htmlContent.includes('markUnknown'), false, 'options/index.html 不得包含 markUnknown');
+  assert.strictEqual(htmlContent.includes('标注词库外的生僻词'), false, 'options/index.html 不得包含 标注词库外的生僻词');
+
+  // main.ts 中严禁包含 markUnknown 元素绑定与无效预览描述
+  assert.strictEqual(mainContent.includes('markUnknown:'), false, 'options/main.ts 不得包含 fields.markUnknown');
+  assert.strictEqual(mainContent.includes('词库外的生僻词暂不标'), false, 'options/main.ts 不得包含无效预览描述');
+
+  // 保证 Settings 数据结构的向下兼容性，已有配置不会崩溃
+  const defaultWithMarkUnknown = withDefaults({ markUnknown: false });
+  assert.strictEqual(defaultWithMarkUnknown.markUnknown, false);
+});
