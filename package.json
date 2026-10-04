@@ -1,7 +1,7 @@
 {
   "name": "glint",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "//imports": "只给 Node 跑测试用：wxt build 和 vite demo 各自在 resolve.alias 里先拦掉了 #imports，走不到这里",
   "imports": {

@@ -2,10 +2,10 @@
 
 > 阅读英文网页时，按你的英语水平把生词标注出来。鼠标停在单词上，即可查阅本地离线词典释义；配合 AI 大模型，精准解析单词在**当前句子**中的具体语境含义。
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/ReiAKIraAn/Glint/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](https://github.com/ReiAKIraAn/Glint/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%20Safari-orange.svg)](https://github.com/ReiAKIraAn/Glint)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-475%20passed-brightgreen.svg)](https://github.com/ReiAKIraAn/Glint)
+[![Tests](https://img.shields.io/badge/tests-476%20passed-brightgreen.svg)](https://github.com/ReiAKIraAn/Glint)
 
 ---
 
@@ -50,7 +50,7 @@
 
 ## 版本与定位
 
-* **当前版本**：`1.2.0` (Git Tag: `v1.2.0-safari-personal`)
+* **当前版本**：`1.2.1` (Git Tag: `v1.2.1-safari-personal`)
 * **正式仓库**：[https://github.com/ReiAKIraAn/Glint](https://github.com/ReiAKIraAn/Glint)
 * **版本定位**：
   * **Safari-First 专属个人版**：专为 macOS 用户长期日常自用优化，彻底剥离 Chrome/Firefox 等多端跨浏览器套壳包袱与臃肿历史依赖；
@@ -321,7 +321,7 @@ glint/
 │   │   ├── speak.ts          # 本地离线 TTS 语音合成封装
 │   │   └── providers/        # AI 服务商适配器 (OpenAI / DeepSeek / Custom)
 │   └── assets/               # 静态资源与内置词汇级别索引
-├── tests/                    # 475 项自动化回归测试套件
+├── tests/                    # 476 项自动化回归测试套件
 ├── docs/                     # 系统架构设计、Safari WebKit 依赖及历史审计文档
 ├── public/                   # 扩展静态资源 (图标、dict.json、exams.json)
 ├── wxt.config.ts             # WXT 配置文件 (已禁用 reloadCommand，最小权限配置)
@@ -333,13 +333,14 @@ glint/
 ## Git 分支与版本规划
 
 * **主工作与发布分支**：`safari-personal`
-* **版本标签规范**：`v<version>-safari-personal`（例如 `v1.1.1-safari-personal`、`v1.1.2-safari-personal`、`v1.1.3-safari-personal`、`v1.1.4-safari-personal`、`v1.2.0-safari-personal`）
+* **版本标签规范**：`v<version>-safari-personal`（例如 `v1.1.1-safari-personal`、`v1.1.2-safari-personal`、`v1.1.3-safari-personal`、`v1.1.4-safari-personal`、`v1.2.0-safari-personal`、`v1.2.1-safari-personal`）
 * **版本演进**：
   * `v1.1.1-safari-personal`：完成 Provider 架构收敛、Custom API 无 Key 与 Extra Body 支持、CSS 文字颜色高亮支持、Anki UI 移除及历史基线确立；
   * `v1.1.2-safari-personal`：完成 Safari 扩展 Shortcuts 残留来源彻底切断、禁用 WXT 自动 reload command、全面清理 X/Twitter 社交入口、统一 GitHub 官方链接，并完善全中文工程技术文档；
   * `v1.1.3-safari-personal`：AI 解释精简为仅显示当前语境下的中文释义，统一三家 Provider 提示词，移除英文长释义与格式干扰，修复权限用户手势问题；
   * `v1.1.4-safari-personal`：AI 解释优先作为单词卡片默认释义，无缓存时显示本地词典并异步流式生成；
-  * `v1.2.0-safari-personal`：新增 AI Card Redo 重新生成能力，支持在单词卡内主动绕过缓存重新结合句子上下文请求 AI 释义，具备单请求并发控制、旧请求隔离和失败安全回退。
+  * `v1.2.0-safari-personal`：新增 AI Card Redo 重新生成能力，支持在单词卡内主动绕过缓存重新结合句子上下文请求 AI 释义，具备单请求并发控制、旧请求隔离和失败安全回退；
+  * `v1.2.1-safari-personal`：清理并移除设置页中尚未实现的“标注词库外的生僻词”无效 UI 选项与相关说明；保留 markUnknown 设置字段以兼容已有配置和备份数据；核心 Scanner 路径零修改。
 
 ---
 

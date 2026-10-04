@@ -4,6 +4,26 @@
 
 ---
 
+## 1.2.1 - Safari Personal Edition - 2026-10-04
+
+### Changed
+
+- 移除设置页中尚未实现的“标注词库外的生僻词”选项（`markUnknown` 复选框与描述说明）。
+- 移除选项页预览脚注中与该未实现能力相关的无效状态提示（“词库外的生僻词暂不标（没 Key 解释不了）”）。
+
+### Compatibility
+
+- 在 `Settings` 数据契约与 `withDefaults` 回退中完整保留 `markUnknown` 字段兼容性，防止读取或合并已有旧版本持久化设置与导入历史 JSON 备份时产生 schema 异常。
+- 核心增量 Scanner 扫描路径与词典反查逻辑保持零修改。
+
+### Validation
+
+- Automated tests: 476/476 PASS (新增 UI-RARE-WORD-01 防回归测试用例)
+- TypeScript: PASS (0 errors)
+- Safari production build: PASS
+
+---
+
 ## 1.2.0 - Safari Personal Edition - 2026-09-25
 
 ### Added
